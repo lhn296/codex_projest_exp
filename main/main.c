@@ -16,6 +16,7 @@ void app_main(void)
     ESP_LOGI("MAIN", "%s", APP_PROJECT_DISPLAY_NAME);
     ESP_LOGI("MAIN", "Project: %s | Version: %s", APP_PROJECT_NAME, APP_PROJECT_VERSION);
     ESP_LOGI("MAIN", "Target: %s", APP_PROJECT_TARGET);
+    ESP_LOGI("MAIN", "Stage: %s", APP_PROJECT_STAGE_NAME);
     ESP_LOGI("MAIN", "========================================");
 
     app_main_task_start();

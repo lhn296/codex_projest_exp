@@ -1,20 +1,26 @@
-# ESP32 Button to Multi LED Template
+# ESP32 External GPIO Button LED Learning
 
-基于 `ESP-IDF 5.5` 的 ESP32-S3 模板工程，用来演示并复用“按键控制多路 LED 模式切换”的基础架构。
+基于 `ESP-IDF 5.5` 的 ESP32-S3 学习工程，用来完成第一阶段的“ESP32 直连外部按键与外部 LED”输入输出练习。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
-- 显示名称：`ESP32 Button to Multi LED Template`
-- 当前版本：`v1.0.0`
+- 显示名称：`ESP32 External GPIO Button LED Learning`
+- 当前版本：`v1.1.1`
 - 目标芯片：`ESP32-S3`
+- 当前阶段：`v1.1.1 Button Debounce Long Double`
 
 当前行为：
 
+- 使用 ESP32 GPIO 直接读取三个外部按键
+- 使用 ESP32 GPIO 直接控制三个外部 LED
 - 主循环周期扫描按键并驱动 LED 服务
 - 每个按键对应一个 LED
-- 按下按键后，该 LED 在以下模式间循环切换：
+- 支持按键消抖、单击、长按、双击三种手势
+- 单击后，该 LED 在以下模式间循环切换：
   `OFF -> ON -> BLINK_SLOW -> BLINK_FAST -> OFF`
+- 长按后，对应 LED 无论当前状态如何都直接关闭
+- 双击后，对应 LED 无论当前状态如何都直接进入快速闪烁
 
 默认 LED 模式：
 
@@ -32,6 +38,8 @@
 - `docs/`：补充说明文档和发布笔记
 
 ## 硬件连接
+
+本版本默认采用“外部元件直连 ESP32 GPIO”的学习方式，不依赖 `XL9555`。
 
 ### LED
 
@@ -52,7 +60,15 @@
 说明：
 
 - `GPIO0` 常用于启动相关功能，接线前请结合开发板原理图确认不会影响下载或启动。
+- 三个按键默认按“内部上拉 + 按下接地”的方式接线，也就是低电平按下。
+- 如果外部 LED 使用方式不同，优先修改 `components/system/app_config.h` 中的 GPIO 和有效电平配置。
 - 如果硬件连接变化，优先修改 `components/system/app_config.h` 中的 GPIO 和默认模式配置。
+
+按键时序参数同样集中在 `components/system/app_config.h`：
+
+- 消抖时间：`APP_BUTTON_DEBOUNCE_MS`
+- 长按判定时间：`APP_BUTTON_LONG_PRESS_MS`
+- 双击判定窗口：`APP_BUTTON_DOUBLE_CLICK_MS`
 
 ## 关键配置入口
 
@@ -76,16 +92,21 @@ idf.py -p COM3 monitor
 
 串口日志中应看到：
 
-- 统一的项目显示名称与版本号
+- 统一的项目显示名称、版本号与学习阶段
 - `app_main_task` 创建成功
 - LED 服务与按键服务初始化成功
+- 当前外部 GPIO 映射打印完成
+- 按键服务打印消抖、长按、双击配置时间
 - 默认 LED 模式已应用
 
 上板验证建议：
 
 1. 上电后观察 `SYS` 慢闪、`NET` 快闪、`ERR` 熄灭。
-2. 依次按下三个按键，确认各自对应 LED 在四种模式间循环。
-3. 观察串口日志，确认模块标签和项目版本信息一致。
+2. 单击任一按键，确认对应 LED 在四种模式间循环。
+3. 长按任一按键约 `0.8s`，确认对应 LED 无论当前状态如何都直接关闭。
+4. 快速双击任一按键，确认对应 LED 无论当前状态如何都直接进入快闪。
+5. 观察串口日志，确认能看到按键名称、手势类型、对应 LED 名称和模式切换过程。
+6. 确认启动日志打印的 GPIO 映射与实际接线一致。
 
 ## 发布与维护
 

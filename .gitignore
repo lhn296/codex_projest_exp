@@ -80,6 +80,5 @@ Desktop.ini
 # VS Code local workspace settings
 .vscode/
 
-# Keep project documentation under docs/
-!docs/
-!docs/*.md
+# Local project notes and archived docs
+docs/

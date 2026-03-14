@@ -1,6 +1,7 @@
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
+#include "driver/gpio.h"
 #include "app_types.h"
 
 #ifdef __cplusplus
@@ -11,9 +12,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 Button to Multi LED Template"
-#define APP_PROJECT_VERSION               "v1.0.0"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 External GPIO Button LED Learning"
+#define APP_PROJECT_VERSION               "v1.1.1"
 #define APP_PROJECT_TARGET                "ESP32-S3"
+
+/* =========================
+ * 当前学习阶段说明
+ * ========================= */
+#define APP_PROJECT_STAGE_NAME            "v1.1.1 Button Debounce Long Double"
 
 /* =========================
  * SYS LED 配置
@@ -53,6 +59,9 @@ extern "C" {
 #define APP_BTN_ERR_GPIO                   GPIO_NUM_16
 #define APP_BUTTON_ACTIVE_LEVEL            0
 #define APP_BUTTON_COUNT                   BTN_MAX
+#define APP_BUTTON_DEBOUNCE_MS             30
+#define APP_BUTTON_LONG_PRESS_MS           800
+#define APP_BUTTON_DOUBLE_CLICK_MS         300
 
 
 /* =========================
