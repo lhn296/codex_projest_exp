@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.2.0 - 2026-03-14
+
+### Added
+- Added `FreeRTOS Queue` based button event delivery with `app_button_msg_t`.
+- Added `app_event_task` to receive button events and handle LED business actions.
+- Added queue/task configuration entries for the first event-driven architecture version.
+
+### Changed
+- Changed `button_service` from direct LED control to queue-based event publishing.
+- Kept the GPIO negative-edge interrupt trigger and gesture behavior while moving business handling into a dedicated event task.
+- Updated project metadata and logs to describe the `v1.2.0` queue event architecture stage.
+
 ## v1.1.2 - 2026-03-14
 
 ### Added

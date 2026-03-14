@@ -1,6 +1,8 @@
 #ifndef APP_TYPES_H
 #define APP_TYPES_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,6 +47,19 @@ typedef enum {
     BUTTON_EVENT_LONG,
     BUTTON_EVENT_DOUBLE
 } button_event_t;
+
+/**
+ * @brief 按键事件消息
+ *
+ * 用于在 FreeRTOS Queue 中传递“哪个按键发生了什么事件”。
+ * v1.2.0 的关键变化就是把直接函数调用改成消息传递，
+ * 这个结构体就是整条事件链里的最小消息单元。
+ */
+typedef struct {
+    button_id_t button_id;// 按键编号
+    button_event_t event;// 事件类型
+    int64_t timestamp_ms;// 事件发生的时间戳，单位毫秒
+} app_button_msg_t;
 
 
 #ifdef __cplusplus

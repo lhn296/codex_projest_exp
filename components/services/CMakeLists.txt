@@ -4,6 +4,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         bsp
+        freertos
         log
         system
         esp_timer

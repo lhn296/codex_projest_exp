@@ -13,13 +13,13 @@ extern "C" {
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
 #define APP_PROJECT_DISPLAY_NAME          "ESP32 External GPIO Button LED Learning"
-#define APP_PROJECT_VERSION               "v1.1.2"
+#define APP_PROJECT_VERSION               "v1.2.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.1.2 Button Negedge Interrupt"
+#define APP_PROJECT_STAGE_NAME            "v1.2.0 Queue Event Architecture"
 
 /* =========================
  * SYS LED 配置
@@ -71,6 +71,10 @@ extern "C" {
 #define APP_MAIN_TASK_STACK_SIZE          4096
 #define APP_MAIN_TASK_PRIORITY            5
 #define APP_LED_SERVICE_TASK_PERIOD_MS    20
+#define APP_EVENT_TASK_NAME               "app_event_task"
+#define APP_EVENT_TASK_STACK_SIZE         4096
+#define APP_EVENT_TASK_PRIORITY           6
+#define APP_EVENT_QUEUE_LENGTH            8
 
 #ifdef __cplusplus
 }

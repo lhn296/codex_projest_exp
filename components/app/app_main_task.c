@@ -1,13 +1,16 @@
 #include "app_main_task.h"
+#include "app_event_task.h"
 #include "app_config.h"
 #include "led_service.h"
 #include "button_service.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_err.h"
 #include "esp_log.h"
 
 static const char *TAG = "APP_MAIN";
+static QueueHandle_t s_button_event_queue = NULL;
 
 /* 启动时打印当前版本使用的外部 GPIO 映射，方便上板核对接线。 */
 static void app_main_task_log_gpio_mapping(void)
@@ -41,6 +44,17 @@ static void app_main_task(void *param)
 {
     (void)param;
 
+    // v1.2.0 的第一步是先把系统级事件通道准备好，
+    // 后面的输入服务和事件任务都会围绕这条队列通信。
+    s_button_event_queue = xQueueCreate(APP_EVENT_QUEUE_LENGTH, sizeof(app_button_msg_t));
+    if (s_button_event_queue == NULL) {
+        ESP_LOGE(TAG, "xQueueCreate failed, queue_len=%d", APP_EVENT_QUEUE_LENGTH);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "button event queue ready, queue_len=%d", APP_EVENT_QUEUE_LENGTH);
+
     // 先准备输出能力，再准备输入能力，方便后面按键事件一产生就能立刻看到灯效反馈。
     esp_err_t ret = led_service_init();
     if (ret != ESP_OK) {
@@ -49,7 +63,16 @@ static void app_main_task(void *param)
         return;
     }
 
-    ret = button_service_init();
+    
+    ret = app_event_task_start(s_button_event_queue);//
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "app_event_task_start failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // button_service 不创建队列，而是拿到现成的队列句柄后只负责发消息。
+    ret = button_service_init(s_button_event_queue);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "button_service_init failed, ret=0x%x", ret);
         vTaskDelete(NULL);
@@ -64,10 +87,11 @@ static void app_main_task(void *param)
              APP_LED_SYS_DEFAULT_MODE,
              APP_LED_NET_DEFAULT_MODE,
              APP_LED_ERR_DEFAULT_MODE);
+    ESP_LOGI(TAG, "Event flow: button_service -> queue -> app_event_task -> led_service");
 
     while (1) {
-        // v1.1.2 改成“GPIO 下降沿中断通知 + 主循环状态机处理”的混合模式。
-        // LED 仍然需要周期驱动来实现闪烁；按键服务则在这里处理 ISR 之后的完整状态机。
+        // v1.2.0 开始，按键服务只负责识别事件并投递到队列；
+        // 真正的业务动作改由 app_event_task 接收消息后处理。
         led_service_process();
         button_service_process();
         vTaskDelay(pdMS_TO_TICKS(APP_LED_SERVICE_TASK_PERIOD_MS));

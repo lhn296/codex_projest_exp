@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "app_event_task.c"
         "app_main_task.c"
     INCLUDE_DIRS
         "."

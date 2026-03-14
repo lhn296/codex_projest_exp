@@ -1,11 +1,13 @@
 #include "button_service.h"
 #include "bsp_button.h"
-#include "led_service.h"
 #include "esp_log.h"
 #include "app_config.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 static const char *TAG = "BTN_SERVICE";
+static QueueHandle_t s_button_event_queue = NULL;
 
 /* 按钮对象结构体 */
 typedef struct {
@@ -41,36 +43,6 @@ static const char *button_service_button_to_string(button_id_t btn_id)
     }
 }
 
-static const char *button_service_led_to_string(led_id_t led_id)
-{
-    switch (led_id) {
-        case LED_ID_SYS:
-            return "SYS_LED";
-        case LED_ID_NET:
-            return "NET_LED";
-        case LED_ID_ERR:
-            return "ERR_LED";
-        default:
-            return "UNKNOWN_LED";
-    }
-}
-
-static const char *button_service_mode_to_string(led_mode_t mode)
-{
-    switch (mode) {
-        case LED_MODE_OFF:
-            return "OFF";
-        case LED_MODE_ON:
-            return "ON";
-        case LED_MODE_BLINK_SLOW:
-            return "BLINK_SLOW";
-        case LED_MODE_BLINK_FAST:
-            return "BLINK_FAST";
-        default:
-            return "UNKNOWN";
-    }
-}
-
 static const char *button_service_event_to_string(button_event_t event)
 {
     switch (event) {
@@ -95,47 +67,57 @@ static bool button_service_should_poll(const button_obj_t *btn)
            (btn->click_count > 0);
 }
 
-// 根据当前 LED 模式和按钮事件，计算下一个 LED 模式
-static led_mode_t button_service_get_next_mode_for_event(led_mode_t cur_mode, button_event_t event)
+static esp_err_t button_service_publish_event(button_id_t btn_id, button_event_t event, int64_t now_ms)
 {
-    switch (event) {
-        case BUTTON_EVENT_SHORT:
-            return (led_mode_t)((cur_mode + 1) % LED_MODE_MAX); // 短按切换到下一个模式
-        case BUTTON_EVENT_LONG:
-            return LED_MODE_OFF;    // 长按切换到常灭
-        case BUTTON_EVENT_DOUBLE:
-            return LED_MODE_BLINK_FAST; // 双击切换到快闪
-        case BUTTON_EVENT_NONE:
-        default:
-            return cur_mode;
+    if (s_button_event_queue == NULL) {
+        ESP_LOGE(TAG, "button event queue is not ready");
+        return ESP_ERR_INVALID_STATE;
     }
-}
 
-// 处理按钮事件，根据事件类型和当前 LED 模式决定是否切换 LED 模式
-static void button_service_handle_event(button_id_t btn_id, button_event_t event)
-{
-    led_id_t led_id = (led_id_t)btn_id;
-    led_mode_t cur_mode = led_service_get_mode(led_id);
-    led_mode_t next_mode = button_service_get_next_mode_for_event(cur_mode, event);
+    // 按键服务在 v1.2.0 里只负责“产生事件”，不再直接决定 LED 怎么执行。
+    app_button_msg_t msg = {
+        .button_id = btn_id,
+        .event = event,
+        .timestamp_ms = now_ms,
+    };
 
-    ESP_LOGI(TAG, "%s %s -> %s: %s -> %s",
+    // 这里使用非阻塞发送：如果队列满了，宁可丢这次消息并打印日志，
+    // 也不要把按键状态机卡住。
+    if (xQueueSend(s_button_event_queue, &msg, 0) != pdPASS) {
+        ESP_LOGW(TAG, "queue full, drop %s %s",
+                 button_service_button_to_string(btn_id),
+                 button_service_event_to_string(event));
+        return ESP_ERR_TIMEOUT;
+    }
+
+    ESP_LOGI(TAG, "enqueue %s %s at %lldms",
              button_service_button_to_string(btn_id),
              button_service_event_to_string(event),
-             button_service_led_to_string(led_id),
-             button_service_mode_to_string(cur_mode),
-             button_service_mode_to_string(next_mode));
+             (long long)now_ms);
+    return ESP_OK;
+}
 
-    if (next_mode != cur_mode) {
-        led_service_set_mode(led_id, next_mode);
-    }
+// v1.2.0 起，按键服务不再直接操作 LED，而是统一把事件投递到队列。
+static void button_service_handle_event(button_id_t btn_id, button_event_t event)
+{
+    button_service_publish_event(btn_id, event, button_service_get_time_ms());
 }
 
 /**
  * @brief 初始化按钮服务
  * @return ESP_OK 成功，否则返回错误码
  */
-esp_err_t button_service_init(void)
+esp_err_t button_service_init(QueueHandle_t event_queue)
 {
+    if (event_queue == NULL) {
+        ESP_LOGE(TAG, "event_queue is null");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // 由 app_main_task 创建队列，再把句柄注入给 button_service，
+    // 这样服务层本身不负责系统资源创建，只负责使用。
+    s_button_event_queue = event_queue;
+
     for (int i = 0; i < APP_BUTTON_COUNT; i++) {
         esp_err_t ret = bsp_button_init((button_id_t)i);
         if (ret != ESP_OK) {
@@ -155,7 +137,7 @@ esp_err_t button_service_init(void)
     }
 
     ESP_LOGI(TAG,
-             "Button service init done, mode=interrupt debounce=%dms long=%dms double=%dms",
+             "Button service init done, mode=interrupt+queue debounce=%dms long=%dms double=%dms",
              APP_BUTTON_DEBOUNCE_MS,
              APP_BUTTON_LONG_PRESS_MS,
              APP_BUTTON_DOUBLE_CLICK_MS);
@@ -163,7 +145,7 @@ esp_err_t button_service_init(void)
 }
 
 /**
- * @brief 周期扫描按键，识别事件并更新 LED 模式
+ * @brief 周期扫描按键，识别事件并发送到事件队列
  */
 void button_service_process(void)
 {
@@ -190,6 +172,8 @@ void button_service_process(void)
             continue;
         }
 
+        // 即使已经用了 GPIO 中断，后续仍然要靠读取电平来完成
+        // 消抖、释放判断、长按计时和双击窗口判断。
         bool state = bsp_button_read(btn->btn_id);// 读取当前按钮状态
 
         if (state != btn->raw_state) {

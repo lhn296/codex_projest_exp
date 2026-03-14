@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 void app_main_task_start(void);
+
 #ifdef __cplusplus
 }
 #endif
