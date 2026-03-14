@@ -13,6 +13,7 @@ typedef struct {
     bool raw_state; // 当前原始状态（未去抖动） 
     bool stable_state; // 稳定状态（去抖动后）
     bool long_reported; // 是否已报告过长按事件
+    bool irq_tracking; // 中断触发后进入跟踪期，直到这次按键完整结束
     uint8_t click_count; // 连续点击计数
     int64_t raw_change_time_ms;// 原始状态上次变化时间
     int64_t press_start_time_ms;// 按下开始时间
@@ -84,6 +85,16 @@ static const char *button_service_event_to_string(button_event_t event)
             return "NONE";
     }
 }
+
+static bool button_service_should_poll(const button_obj_t *btn)
+{
+    // 中断模式下不再无脑扫描所有按键，只对“正在发生动作”的按键继续跟踪。
+    return btn->irq_tracking ||
+           btn->raw_state ||
+           btn->stable_state ||
+           (btn->click_count > 0);
+}
+
 // 根据当前 LED 模式和按钮事件，计算下一个 LED 模式
 static led_mode_t button_service_get_next_mode_for_event(led_mode_t cur_mode, button_event_t event)
 {
@@ -136,6 +147,7 @@ esp_err_t button_service_init(void)
         s_btn_objs[i].raw_state = false;
         s_btn_objs[i].stable_state = false;
         s_btn_objs[i].long_reported = false;
+        s_btn_objs[i].irq_tracking = false;
         s_btn_objs[i].click_count = 0;
         s_btn_objs[i].raw_change_time_ms = 0;
         s_btn_objs[i].press_start_time_ms = 0;
@@ -143,8 +155,7 @@ esp_err_t button_service_init(void)
     }
 
     ESP_LOGI(TAG,
-             "Button service init done, button_count=%d debounce=%dms long=%dms double=%dms",
-             APP_BUTTON_COUNT,
+             "Button service init done, mode=interrupt debounce=%dms long=%dms double=%dms",
              APP_BUTTON_DEBOUNCE_MS,
              APP_BUTTON_LONG_PRESS_MS,
              APP_BUTTON_DOUBLE_CLICK_MS);
@@ -159,38 +170,60 @@ void button_service_process(void)
     int64_t now_ms = button_service_get_time_ms();
 
     for (int i = 0; i < APP_BUTTON_COUNT; i++) {
-        bool state = bsp_button_read((button_id_t)i);// 读取当前按钮状态
         button_obj_t *btn = &s_btn_objs[i];
+        bool press_irq = bsp_button_consume_press_irq(btn->btn_id);
+
+        if (press_irq) {
+            // 下降沿中断只负责告诉服务层“某个按键开始有动作了”，
+            // 真正的消抖、长按和双击判断仍留在普通上下文中处理。
+            btn->irq_tracking = true;
+
+            // 下降沿意味着“可能开始按下”，先把原始状态推进到按下候选态，
+            // 后面仍要经过 debounce 时间才能成为稳定按下。
+            if (!btn->raw_state && !btn->stable_state) {// 只有在当前完全未按下的情况下，才允许原始状态推进到按下候选态。
+                btn->raw_state = true;
+                btn->raw_change_time_ms = now_ms;
+            }
+        }
+        // 没有中断且当前按键状态完全静止（不管是按下还是未按），就不必浪费 CPU 去轮询了。
+        if (!button_service_should_poll(btn)) {
+            continue;
+        }
+
+        bool state = bsp_button_read(btn->btn_id);// 读取当前按钮状态
 
         if (state != btn->raw_state) {
             btn->raw_state = state;
             btn->raw_change_time_ms = now_ms;
         }
         
-        //现在的状态与稳定状态不同，并且已经过去抖动时间，认为状态已经稳定
+        // 原始状态连续保持到达消抖阈值，才允许升级为稳定状态。
         if (btn->raw_state != btn->stable_state &&
             (now_ms - btn->raw_change_time_ms) >= APP_BUTTON_DEBOUNCE_MS) { 
             btn->stable_state = btn->raw_state;
-            //状态发生了变化，处理按下或释放事件
-            if (btn->stable_state) {
-                btn->press_start_time_ms = now_ms;
-                btn->long_reported = false;// 按下时重置长按报告和点击计数
-            } else {
-                if (!btn->long_reported) {// 如果还没有报告过长按事件，说明这是一次短按或双击
-                    btn->click_count++;// 增加点击计数
-                    btn->last_release_time_ms = now_ms; // 更新上次释放时间
 
-                    if (btn->click_count >= 2) {    // 如果点击计数达到2，认为是双击事件
+            // 稳定按下只记录起点和上下文；真正的长按由后续时间判断触发。
+            if (btn->stable_state) {
+                btn->irq_tracking = true;
+                btn->press_start_time_ms = now_ms;
+                btn->long_reported = false;
+            } else {
+                // 稳定释放后先不急着报单击，要给双击留出判断窗口。
+                if (!btn->long_reported) {
+                    btn->click_count++;
+                    btn->last_release_time_ms = now_ms;
+
+                    if (btn->click_count >= 2) {
                         button_service_handle_event(btn->btn_id, BUTTON_EVENT_DOUBLE);
-                        btn->click_count = 0;// 重置点击计数
+                        btn->click_count = 0;
                     }
-                } else {    // 如果已经报告过长按事件，重置点击计数
+                } else {
                     btn->click_count = 0;
                 }
             }   
         }
 
-        // 如果当前状态是按下，并且还没有报告过长按事件，并且已经超过长按时间，报告长按事件
+        // 长按只触发一次；一旦触发，这次按键就不再参与单击/双击判定。
         if (btn->stable_state &&
             !btn->long_reported &&
             (now_ms - btn->press_start_time_ms) >= APP_BUTTON_LONG_PRESS_MS) {
@@ -198,12 +231,21 @@ void button_service_process(void)
             btn->long_reported = true;
             btn->click_count = 0;
         }
-        // 如果当前状态是释放，并且点击计数为1，并且已经超过双击时间，报告短按事件
+
+        // 单击必须等双击窗口超时后才能确认，否则会和双击抢事件。
         if (!btn->stable_state &&
             btn->click_count == 1 &&
             (now_ms - btn->last_release_time_ms) >= APP_BUTTON_DOUBLE_CLICK_MS) {
             button_service_handle_event(btn->btn_id, BUTTON_EVENT_SHORT);
             btn->click_count = 0;
+        }
+
+        // 当这次按键动作完全结束后，退出跟踪态，回到“等下一次中断唤醒”。
+        if (!btn->stable_state &&
+            !btn->raw_state &&
+            btn->click_count == 0 &&
+            (now_ms - btn->raw_change_time_ms) >= APP_BUTTON_DEBOUNCE_MS) {
+            btn->irq_tracking = false;
         }
     }
 }

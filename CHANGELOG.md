@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.1.2 - 2026-03-14
+
+### Added
+- Added independent GPIO negative-edge interrupt handling for `BTN_SYS`, `BTN_NET`, and `BTN_ERR`.
+- Added button IRQ pending consumption API in `bsp_button` for interrupt-driven button processing.
+
+### Changed
+- Changed button handling from pure periodic polling to a hybrid model: interrupt notification plus main-loop state-machine processing.
+- Kept debounce, short press, long press, and double click behavior unchanged while moving the trigger source to GPIO interrupts.
+- Updated project metadata and startup logs to describe the `v1.1.2` negative-edge interrupt learning stage.
+
 ## v1.1.1 - 2026-03-14
 
 ### Added

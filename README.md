@@ -6,17 +6,19 @@
 
 - 工程名：`codex_project_tep`
 - 显示名称：`ESP32 External GPIO Button LED Learning`
-- 当前版本：`v1.1.1`
+- 当前版本：`v1.1.2`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.1.1 Button Debounce Long Double`
+- 当前阶段：`v1.1.2 Button Negedge Interrupt`
 
 当前行为：
 
 - 使用 ESP32 GPIO 直接读取三个外部按键
 - 使用 ESP32 GPIO 直接控制三个外部 LED
-- 主循环周期扫描按键并驱动 LED 服务
+- 使用 3 路 GPIO 下降沿中断触发按键处理
+- 主循环负责处理中断触发后的消抖与手势识别，并驱动 LED 服务
 - 每个按键对应一个 LED
 - 支持按键消抖、单击、长按、双击三种手势
+- 每个按键独立配置为下降沿中断触发
 - 单击后，该 LED 在以下模式间循环切换：
   `OFF -> ON -> BLINK_SLOW -> BLINK_FAST -> OFF`
 - 长按后，对应 LED 无论当前状态如何都直接关闭
@@ -56,6 +58,12 @@
 | `BTN_SYS` | `GPIO0` | 内部上拉 | 低电平按下 |
 | `BTN_NET` | `GPIO7` | 内部上拉 | 低电平按下 |
 | `BTN_ERR` | `GPIO16` | 内部上拉 | 低电平按下 |
+
+中断方式：
+
+- `BTN_SYS`：下降沿中断
+- `BTN_NET`：下降沿中断
+- `BTN_ERR`：下降沿中断
 
 说明：
 
@@ -97,6 +105,7 @@ idf.py -p COM3 monitor
 - LED 服务与按键服务初始化成功
 - 当前外部 GPIO 映射打印完成
 - 按键服务打印消抖、长按、双击配置时间
+- 按键初始化日志打印 `intr=negedge`
 - 默认 LED 模式已应用
 
 上板验证建议：
@@ -106,7 +115,7 @@ idf.py -p COM3 monitor
 3. 长按任一按键约 `0.8s`，确认对应 LED 无论当前状态如何都直接关闭。
 4. 快速双击任一按键，确认对应 LED 无论当前状态如何都直接进入快闪。
 5. 观察串口日志，确认能看到按键名称、手势类型、对应 LED 名称和模式切换过程。
-6. 确认启动日志打印的 GPIO 映射与实际接线一致。
+6. 确认启动日志打印的 GPIO 映射与 `intr=negedge` 信息一致。
 
 ## 发布与维护
 

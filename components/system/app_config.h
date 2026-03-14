@@ -13,13 +13,13 @@ extern "C" {
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
 #define APP_PROJECT_DISPLAY_NAME          "ESP32 External GPIO Button LED Learning"
-#define APP_PROJECT_VERSION               "v1.1.1"
+#define APP_PROJECT_VERSION               "v1.1.2"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.1.1 Button Debounce Long Double"
+#define APP_PROJECT_STAGE_NAME            "v1.1.2 Button Negedge Interrupt"
 
 /* =========================
  * SYS LED 配置

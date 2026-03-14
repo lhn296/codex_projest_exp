@@ -21,11 +21,11 @@ static void app_main_task_log_gpio_mapping(void)
              APP_ERR_LED_GPIO, APP_ERR_LED_ACTIVE_LEVEL, APP_LED_ERR_DEFAULT_MODE);
 
     ESP_LOGI(TAG, "External button mapping:");
-    ESP_LOGI(TAG, "  BTN_SYS -> GPIO%d active_level=%d",
+    ESP_LOGI(TAG, "  BTN_SYS -> GPIO%d active_level=%d intr=negedge",
              APP_BTN_SYS_GPIO, APP_BUTTON_ACTIVE_LEVEL);
-    ESP_LOGI(TAG, "  BTN_NET -> GPIO%d active_level=%d",
+    ESP_LOGI(TAG, "  BTN_NET -> GPIO%d active_level=%d intr=negedge",
              APP_BTN_NET_GPIO, APP_BUTTON_ACTIVE_LEVEL);
-    ESP_LOGI(TAG, "  BTN_ERR -> GPIO%d active_level=%d",
+    ESP_LOGI(TAG, "  BTN_ERR -> GPIO%d active_level=%d intr=negedge",
              APP_BTN_ERR_GPIO, APP_BUTTON_ACTIVE_LEVEL);
 }
 
@@ -41,6 +41,7 @@ static void app_main_task(void *param)
 {
     (void)param;
 
+    // 先准备输出能力，再准备输入能力，方便后面按键事件一产生就能立刻看到灯效反馈。
     esp_err_t ret = led_service_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "led_service_init failed, ret=0x%x", ret);
@@ -65,9 +66,10 @@ static void app_main_task(void *param)
              APP_LED_ERR_DEFAULT_MODE);
 
     while (1) {
-        // 轮询式学习版本先在一个主循环里驱动服务，后续再演进到更细的任务拆分。
-        led_service_process();// 处理 LED 状态切换，必须在主循环调用以实现 LED 的闪烁效果
-        button_service_process();// 处理按键事件，必须在主循环调用以检测按键状态并触发相应的 LED 模式切换
+        // v1.1.2 改成“GPIO 下降沿中断通知 + 主循环状态机处理”的混合模式。
+        // LED 仍然需要周期驱动来实现闪烁；按键服务则在这里处理 ISR 之后的完整状态机。
+        led_service_process();
+        button_service_process();
         vTaskDelay(pdMS_TO_TICKS(APP_LED_SERVICE_TASK_PERIOD_MS));
     }
 }
