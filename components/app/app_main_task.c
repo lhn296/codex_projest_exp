@@ -46,7 +46,7 @@ static void app_main_task(void *param)
 
     // v1.2.0 的第一步是先把系统级事件通道准备好，
     // 后面的输入服务和事件任务都会围绕这条队列通信。
-    s_button_event_queue = xQueueCreate(APP_EVENT_QUEUE_LENGTH, sizeof(app_button_msg_t));
+    s_button_event_queue = xQueueCreate(APP_EVENT_QUEUE_LENGTH, sizeof(app_event_msg_t));
     if (s_button_event_queue == NULL) {
         ESP_LOGE(TAG, "xQueueCreate failed, queue_len=%d", APP_EVENT_QUEUE_LENGTH);
         vTaskDelete(NULL);
@@ -63,8 +63,8 @@ static void app_main_task(void *param)
         return;
     }
 
-    
-    ret = app_event_task_start(s_button_event_queue);//
+    // 启动事件任务，准备好事件通路，后续按键服务投递的事件才能被处理。
+    ret = app_event_task_start(s_button_event_queue);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "app_event_task_start failed, ret=0x%x", ret);
         vTaskDelete(NULL);
@@ -87,7 +87,7 @@ static void app_main_task(void *param)
              APP_LED_SYS_DEFAULT_MODE,
              APP_LED_NET_DEFAULT_MODE,
              APP_LED_ERR_DEFAULT_MODE);
-    ESP_LOGI(TAG, "Event flow: button_service -> queue -> app_event_task -> led_service");
+    ESP_LOGI(TAG, "Event flow: button_service -> unified_event_queue -> app_event_task -> led_service");
 
     while (1) {
         // v1.2.0 开始，按键服务只负责识别事件并投递到队列；

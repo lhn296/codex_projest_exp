@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.2.1 - 2026-03-14
+
+### Added
+- Added unified event message definitions with source/type/param fields for future module expansion.
+- Added basic queue send/receive/handle counters and clearer unified event logs.
+
+### Changed
+- Changed the queue payload from button-specific messages to a unified event message format.
+- Kept button gesture behavior unchanged while moving the event chain toward a more reusable architecture.
+- Updated project metadata and logs to describe the `v1.2.1` unified event message stage.
+
 ## v1.2.0 - 2026-03-14
 
 ### Added

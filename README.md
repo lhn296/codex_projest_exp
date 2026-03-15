@@ -1,14 +1,14 @@
 # ESP32 External GPIO Button LED Learning
 
-基于 `ESP-IDF 5.5` 的 ESP32-S3 学习工程，用来完成第一阶段的“ESP32 直连外部按键与外部 LED”输入输出练习。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成第一阶段的“ESP32 直连外部按键与外部 LED”输入输出练习。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
 - 显示名称：`ESP32 External GPIO Button LED Learning`
-- 当前版本：`v1.2.0`
+- 当前版本：`v1.2.1`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.2.0 Queue Event Architecture`
+- 当前阶段：`v1.2.1 Unified Event Message`
 
 当前行为：
 
@@ -17,11 +17,13 @@
 - 使用 3 路 GPIO 下降沿中断触发按键处理
 - 引入 `FreeRTOS Queue` 传递按键事件
 - 新增 `app_event_task` 处理业务事件
+- 统一队列消息结构为通用事件格式
 - 主循环负责按键状态机和 LED 周期服务
 - 每个按键对应一个 LED
 - 支持按键消抖、单击、长按、双击三种手势
 - 每个按键独立配置为下降沿中断触发
 - 按键服务不再直接修改 LED，而是通过队列发送事件
+- 增加统一事件日志和基础发送/接收统计
 - 单击后，该 LED 在以下模式间循环切换：
   `OFF -> ON -> BLINK_SLOW -> BLINK_FAST -> OFF`
 - 长按后，对应 LED 无论当前状态如何都直接关闭
@@ -108,7 +110,7 @@ idf.py -p COM3 monitor
 - LED 服务与按键服务初始化成功
 - 当前外部 GPIO 映射打印完成
 - 按键服务打印消抖、长按、双击配置时间
-- 事件任务日志打印队列接收和 LED 模式变化
+- 事件任务日志打印统一事件接收、处理和 LED 模式变化
 - 按键初始化日志打印 `intr=negedge`
 - 默认 LED 模式已应用
 
@@ -119,7 +121,7 @@ idf.py -p COM3 monitor
 3. 长按任一按键约 `0.8s`，确认对应 LED 无论当前状态如何都直接关闭。
 4. 快速双击任一按键，确认对应 LED 无论当前状态如何都直接进入快闪。
 5. 观察串口日志，确认能看到按键名称、手势类型、对应 LED 名称和模式切换过程。
-6. 确认启动日志打印了 `button_service -> queue -> app_event_task -> led_service` 事件链路。
+6. 确认启动日志打印了 `button_service -> unified_event_queue -> app_event_task -> led_service` 事件链路。
 7. 确认启动日志打印的 GPIO 映射与 `intr=negedge` 信息一致。
 
 ## 发布与维护

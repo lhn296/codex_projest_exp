@@ -8,6 +8,8 @@
 
 static const char *TAG = "BTN_SERVICE";
 static QueueHandle_t s_button_event_queue = NULL;
+static uint32_t s_event_send_ok_count = 0;
+static uint32_t s_event_send_fail_count = 0;
 
 /* 按钮对象结构体 */
 typedef struct {
@@ -29,32 +31,29 @@ static int64_t button_service_get_time_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
-static const char *button_service_button_to_string(button_id_t btn_id)
+static const char *button_service_source_to_string(app_event_source_t source)
 {
-    switch (btn_id) {
-        case BTN_SYS:
-            return "BTN_SYS";
-        case BTN_NET:
-            return "BTN_NET";
-        case BTN_ERR:
-            return "BTN_ERR";
+    switch (source) {
+        case APP_EVENT_SOURCE_BUTTON:
+            return "BUTTON";
+        case APP_EVENT_SOURCE_SYSTEM:
+            return "SYSTEM";
+        case APP_EVENT_SOURCE_MAX:
         default:
-            return "BTN_UNKNOWN";
+            return "UNKNOWN_SOURCE";
     }
 }
 
-static const char *button_service_event_to_string(button_event_t event)
+static const char *button_service_type_to_string(app_event_type_t type)
 {
-    switch (event) {
-        case BUTTON_EVENT_SHORT:
-            return "SHORT";
-        case BUTTON_EVENT_LONG:
-            return "LONG";
-        case BUTTON_EVENT_DOUBLE:
-            return "DOUBLE";
-        case BUTTON_EVENT_NONE:
+    switch (type) {
+        case APP_EVENT_TYPE_BUTTON:
+            return "BUTTON_EVENT";
+        case APP_EVENT_TYPE_STATUS:
+            return "STATUS_EVENT";
+        case APP_EVENT_TYPE_MAX:
         default:
-            return "NONE";
+            return "UNKNOWN_TYPE";
     }
 }
 
@@ -74,26 +73,36 @@ static esp_err_t button_service_publish_event(button_id_t btn_id, button_event_t
         return ESP_ERR_INVALID_STATE;
     }
 
-    // 按键服务在 v1.2.0 里只负责“产生事件”，不再直接决定 LED 怎么执行。
-    app_button_msg_t msg = {
-        .button_id = btn_id,
-        .event = event,
+    // v1.2.1 开始统一使用通用事件消息格式，按键事件只是其中一种来源。
+    app_event_msg_t msg = {
+        .source = APP_EVENT_SOURCE_BUTTON,
+        .type = APP_EVENT_TYPE_BUTTON,
+        .param1 = (int32_t)btn_id,
+        .param2 = (int32_t)event,
         .timestamp_ms = now_ms,
     };
 
     // 这里使用非阻塞发送：如果队列满了，宁可丢这次消息并打印日志，
     // 也不要把按键状态机卡住。
     if (xQueueSend(s_button_event_queue, &msg, 0) != pdPASS) {
-        ESP_LOGW(TAG, "queue full, drop %s %s",
-                 button_service_button_to_string(btn_id),
-                 button_service_event_to_string(event));
+        s_event_send_fail_count++;
+        ESP_LOGW(TAG, "queue full, drop src=%s type=%s p1=%ld p2=%ld fail=%lu",
+                 button_service_source_to_string(msg.source),
+                 button_service_type_to_string(msg.type),
+                 (long)msg.param1,
+                 (long)msg.param2,
+                 (unsigned long)s_event_send_fail_count);
         return ESP_ERR_TIMEOUT;
     }
 
-    ESP_LOGI(TAG, "enqueue %s %s at %lldms",
-             button_service_button_to_string(btn_id),
-             button_service_event_to_string(event),
-             (long long)now_ms);
+    s_event_send_ok_count++;
+    ESP_LOGI(TAG, "enqueue src=%s type=%s p1=%ld p2=%ld ts=%lld ok=%lu",
+             button_service_source_to_string(msg.source),
+             button_service_type_to_string(msg.type),
+             (long)msg.param1,
+             (long)msg.param2,
+             (long long)msg.timestamp_ms,
+             (unsigned long)s_event_send_ok_count);
     return ESP_OK;
 }
 
@@ -137,7 +146,7 @@ esp_err_t button_service_init(QueueHandle_t event_queue)
     }
 
     ESP_LOGI(TAG,
-             "Button service init done, mode=interrupt+queue debounce=%dms long=%dms double=%dms",
+             "Button service init done, mode=interrupt+unified-event debounce=%dms long=%dms double=%dms",
              APP_BUTTON_DEBOUNCE_MS,
              APP_BUTTON_LONG_PRESS_MS,
              APP_BUTTON_DOUBLE_CLICK_MS);

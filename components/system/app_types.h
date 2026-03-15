@@ -49,17 +49,36 @@ typedef enum {
 } button_event_t;
 
 /**
- * @brief 按键事件消息
+ * @brief 统一事件来源
+ */
+typedef enum {
+    APP_EVENT_SOURCE_BUTTON = 0,
+    APP_EVENT_SOURCE_SYSTEM,
+    APP_EVENT_SOURCE_MAX
+} app_event_source_t;
+
+/**
+ * @brief 统一事件类型
+ */
+typedef enum {
+    APP_EVENT_TYPE_BUTTON = 0,
+    APP_EVENT_TYPE_STATUS,
+    APP_EVENT_TYPE_MAX
+} app_event_type_t;
+
+/**
+ * @brief 统一事件消息
  *
- * 用于在 FreeRTOS Queue 中传递“哪个按键发生了什么事件”。
- * v1.2.0 的关键变化就是把直接函数调用改成消息传递，
- * 这个结构体就是整条事件链里的最小消息单元。
+ * v1.2.1 开始，队列里传递的是统一事件格式，
+ * 这样后续不止按键，其他模块事件也可以接入同一条消息链路。
  */
 typedef struct {
-    button_id_t button_id;// 按键编号
-    button_event_t event;// 事件类型
+    app_event_source_t source;// 事件来源
+    app_event_type_t type;// 事件类型
+    int32_t param1;// 主参数，当前版本用于 button_id
+    int32_t param2;// 次参数，当前版本用于 button_event
     int64_t timestamp_ms;// 事件发生的时间戳，单位毫秒
-} app_button_msg_t;
+} app_event_msg_t;
 
 
 #ifdef __cplusplus
