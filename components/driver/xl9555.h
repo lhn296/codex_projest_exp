@@ -38,8 +38,8 @@ typedef enum {
 } xl9555_pin_t;
 
 typedef enum {
-    XL9555_PIN_MODE_OUTPUT = 0,
-    XL9555_PIN_MODE_INPUT,
+    XL9555_PIN_MODE_OUTPUT = 0,    //0=输出
+    XL9555_PIN_MODE_INPUT,         //1=输入
 } xl9555_pin_mode_t;
 
 /* init 会完成设备探测、句柄建立、缓存同步和极性初始化。 */
