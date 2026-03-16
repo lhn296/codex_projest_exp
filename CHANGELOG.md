@@ -15,6 +15,17 @@ All notable changes to this project will be documented in this file.
 - Changed the unified event task so button events now refresh LCD state together with LED and buzzer feedback.
 - Updated startup logs and metadata to describe the `v1.4.0` SPI LCD display template stage.
 
+## v1.4.1 - 2026-03-16
+
+### Added
+- Added LCD local-region clear helper in `bsp_lcd` for later partial refresh support.
+- Added `v1.4.1` display-layout planning docs for the display-service optimization stage.
+
+### Changed
+- Changed `display_service` from single-page dirty redraw to region-based dirty refresh.
+- Changed the LCD home page into clearer header, project info, LED, beep, and last-event sections.
+- Updated project metadata and startup stage description to `v1.4.1` display-service optimization.
+
 ## v1.3.1 - 2026-03-16
 
 ### Added

@@ -142,6 +142,21 @@ esp_err_t bsp_lcd_clear(uint16_t color)
 }
 
 /**
+ * @brief 填充一个矩形区域
+ *
+ * 这个接口主要是给显示服务做局部刷新时使用的：
+ * 先用背景色把旧区域擦掉，再只重画变化的那一小块内容。
+ */
+esp_err_t bsp_lcd_fill_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color)
+{
+    if (!s_bsp_lcd_inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return lcd_st7789v_fill_rect(x, y, width, height, color);
+}
+
+/**
  * @brief 按默认字号绘制字符串
  */
 esp_err_t bsp_lcd_draw_string(uint16_t x, uint16_t y, const char *text, uint16_t fg_color, uint16_t bg_color)

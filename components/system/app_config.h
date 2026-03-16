@@ -15,13 +15,13 @@ extern "C" {
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
 #define APP_PROJECT_DISPLAY_NAME          "ESP32 SPI LCD Display Template"
-#define APP_PROJECT_VERSION               "v1.4.0"
+#define APP_PROJECT_VERSION               "v1.4.1"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.4.0 SPI LCD Display Template"
+#define APP_PROJECT_STAGE_NAME            "v1.4.1 LCD Display Service Optimize"
 
 /* =========================
  * SYS LED 配置

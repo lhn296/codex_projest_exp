@@ -9,19 +9,52 @@
 
 static const char *TAG = "DISPLAY";
 
-#define DISPLAY_COLOR_BLACK   0x0000
-#define DISPLAY_COLOR_WHITE   0xFFFF
-#define DISPLAY_COLOR_YELLOW  0xFFE0
-#define DISPLAY_COLOR_CYAN    0x07FF
-#define DISPLAY_COLOR_GREEN   0x07E0
-#define DISPLAY_COLOR_RED     0xF800
-#define DISPLAY_TEXT_SCALE_TITLE   2
-#define DISPLAY_TEXT_SCALE_BODY    2
-#define DISPLAY_TEXT_SCALE_SMALL   1
+#define DISPLAY_COLOR_BLACK    0x0000
+#define DISPLAY_COLOR_WHITE    0xFFFF
+#define DISPLAY_COLOR_YELLOW   0xFFE0
+#define DISPLAY_COLOR_CYAN     0x07FF
+#define DISPLAY_COLOR_GREEN    0x07E0
+#define DISPLAY_COLOR_RED      0xF800
+
+#define DISPLAY_TEXT_SCALE_TITLE  2
+#define DISPLAY_TEXT_SCALE_BODY   2
+#define DISPLAY_TEXT_SCALE_SMALL  1
+
+// 首页布局常量集中放在这里，后面如果想微调页面，只需要改这一组参数。
+#define DISPLAY_HEADER_X            8
+#define DISPLAY_HEADER_Y            8
+#define DISPLAY_PROJECT_INFO_X      8
+#define DISPLAY_PROJECT_INFO_Y      32
+#define DISPLAY_PROJECT_INFO_STEP   18
+#define DISPLAY_LED_PANEL_X         8
+#define DISPLAY_LED_PANEL_Y         84
+#define DISPLAY_LED_PANEL_STEP      24
+#define DISPLAY_BEEP_PANEL_X        8
+#define DISPLAY_BEEP_PANEL_Y        168
+#define DISPLAY_BEEP_PANEL_STEP     24
+#define DISPLAY_EVENT_PANEL_X       8
+#define DISPLAY_EVENT_PANEL_Y       218
+#define DISPLAY_EVENT_VALUE_X       56
+
+#define DISPLAY_HEADER_AREA_W       220
+#define DISPLAY_HEADER_AREA_H       20
+#define DISPLAY_PROJECT_AREA_W      304
+#define DISPLAY_PROJECT_AREA_H      42
+#define DISPLAY_LED_AREA_W          220
+#define DISPLAY_LED_AREA_H          68
+#define DISPLAY_BEEP_AREA_W         220
+#define DISPLAY_BEEP_AREA_H         48
+#define DISPLAY_EVENT_AREA_W        280
+#define DISPLAY_EVENT_AREA_H        14
 
 typedef struct {
     bool inited;
-    bool dirty;
+    bool full_refresh_pending;
+    bool header_dirty;
+    bool project_info_dirty;
+    bool led_panel_dirty;
+    bool beep_panel_dirty;
+    bool event_panel_dirty;
     char version[24];
     char stage[48];
     button_id_t last_button_id;
@@ -33,7 +66,12 @@ typedef struct {
 
 static display_service_ctx_t s_display = {
     .inited = false,
-    .dirty = false,
+    .full_refresh_pending = false,
+    .header_dirty = false,
+    .project_info_dirty = false,
+    .led_panel_dirty = false,
+    .beep_panel_dirty = false,
+    .event_panel_dirty = false,
     .version = {0},
     .stage = {0},
     .last_button_id = BTN_SYS,
@@ -42,6 +80,32 @@ static display_service_ctx_t s_display = {
     .beep_enabled = true,
     .beep_test_mode = false,
 };
+
+/**
+ * @brief 把整页首页标记为需要重绘
+ *
+ * 这种方式适合初始化或页面布局整体变化时使用。
+ */
+static void display_service_mark_full_refresh(void)
+{
+    s_display.full_refresh_pending = true;
+    s_display.header_dirty = true;
+    s_display.project_info_dirty = true;
+    s_display.led_panel_dirty = true;
+    s_display.beep_panel_dirty = true;
+    s_display.event_panel_dirty = true;
+}
+
+/**
+ * @brief 清除首页某个局部区域
+ *
+ * 局部刷新不能直接在旧内容上叠新内容，否则字符串变短时会残留旧字符。
+ * 所以每次局部重画前，先把目标区域用背景色擦干净。
+ */
+static esp_err_t display_service_clear_region(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    return bsp_lcd_fill_rect(x, y, width, height, DISPLAY_COLOR_BLACK);
+}
 
 /**
  * @brief 把按钮编号转成便于显示的文本
@@ -117,22 +181,208 @@ static const char *display_service_mode_to_string(led_mode_t mode)
 }
 
 /**
- * @brief 绘制一行“标签: 值”格式的文本
+ * @brief 绘制一行“标签 : 值”格式的文本
  *
- * 这个小封装的作用是把首页上很多状态项的显示风格统一起来。
+ * 这个小封装专门用来统一首页中各状态项的显示风格，
+ * 让上层绘制函数更关注“这行显示什么”，而不是每次自己去拼格式。
  */
-static esp_err_t display_service_draw_line(uint16_t x, uint16_t y, uint16_t color, const char *label, const char *value)
+static esp_err_t display_service_draw_line(uint16_t x, uint16_t y, uint16_t color, uint8_t scale, const char *label, const char *value)
 {
     char line[64];
-    snprintf(line, sizeof(line), "%s: %s", label, value);
-    return bsp_lcd_draw_string_scaled(x, y, line, color, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
+    snprintf(line, sizeof(line), "%s : %s", label, value);
+    return bsp_lcd_draw_string_scaled(x, y, line, color, DISPLAY_COLOR_BLACK, scale);
+}
+
+/**
+ * @brief 绘制首页标题区
+ *
+ * 标题区主要负责显示项目名称，目的是让屏幕一上电就能明确看到当前工程身份。
+ */
+static esp_err_t display_service_draw_header(void)
+{
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_HEADER_X,
+        DISPLAY_HEADER_Y,
+        DISPLAY_HEADER_AREA_W,
+        DISPLAY_HEADER_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return bsp_lcd_draw_string_scaled(
+        DISPLAY_HEADER_X,
+        DISPLAY_HEADER_Y,
+        "CODEX PROJECT",
+        DISPLAY_COLOR_YELLOW,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_TITLE);
+}
+
+/**
+ * @brief 绘制项目信息区
+ *
+ * 这一块固定显示版本号和当前阶段，后面也适合继续扩展成项目基本信息区。
+ */
+static esp_err_t display_service_draw_project_info(void)
+{
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_PROJECT_INFO_X,
+        DISPLAY_PROJECT_INFO_Y,
+        DISPLAY_PROJECT_AREA_W,
+        DISPLAY_PROJECT_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_PROJECT_INFO_X,
+        DISPLAY_PROJECT_INFO_Y,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "VER",
+        s_display.version);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_PROJECT_INFO_X,
+        DISPLAY_PROJECT_INFO_Y + DISPLAY_PROJECT_INFO_STEP,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "STAGE",
+        s_display.stage);
+}
+
+/**
+ * @brief 绘制 LED 状态区
+ *
+ * 三路 LED 状态统一放在同一个 panel 中，后面调试业务键时可以很直观看到模式变化。
+ */
+static esp_err_t display_service_draw_led_panel(void)
+{
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_LED_PANEL_X,
+        DISPLAY_LED_PANEL_Y,
+        DISPLAY_LED_AREA_W,
+        DISPLAY_LED_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_LED_PANEL_X,
+        DISPLAY_LED_PANEL_Y,
+        DISPLAY_COLOR_CYAN,
+        DISPLAY_TEXT_SCALE_BODY,
+        display_service_led_to_string(LED_ID_SYS),
+        display_service_mode_to_string(s_display.led_modes[LED_ID_SYS]));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_LED_PANEL_X,
+        DISPLAY_LED_PANEL_Y + DISPLAY_LED_PANEL_STEP,
+        DISPLAY_COLOR_CYAN,
+        DISPLAY_TEXT_SCALE_BODY,
+        display_service_led_to_string(LED_ID_NET),
+        display_service_mode_to_string(s_display.led_modes[LED_ID_NET]));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_LED_PANEL_X,
+        DISPLAY_LED_PANEL_Y + DISPLAY_LED_PANEL_STEP * 2,
+        DISPLAY_COLOR_CYAN,
+        DISPLAY_TEXT_SCALE_BODY,
+        display_service_led_to_string(LED_ID_ERR),
+        display_service_mode_to_string(s_display.led_modes[LED_ID_ERR]));
+}
+
+/**
+ * @brief 绘制蜂鸣器状态区
+ *
+ * 这里集中显示蜂鸣器的两个关键状态：提示是否开启、测试模式是否开启。
+ */
+static esp_err_t display_service_draw_beep_panel(void)
+{
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_BEEP_PANEL_X,
+        DISPLAY_BEEP_PANEL_Y,
+        DISPLAY_BEEP_AREA_W,
+        DISPLAY_BEEP_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_BEEP_PANEL_X,
+        DISPLAY_BEEP_PANEL_Y,
+        DISPLAY_COLOR_GREEN,
+        DISPLAY_TEXT_SCALE_BODY,
+        "BEEP",
+        s_display.beep_enabled ? "ON" : "OFF");
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_BEEP_PANEL_X,
+        DISPLAY_BEEP_PANEL_Y + DISPLAY_BEEP_PANEL_STEP,
+        DISPLAY_COLOR_GREEN,
+        DISPLAY_TEXT_SCALE_BODY,
+        "TEST",
+        s_display.beep_test_mode ? "ON" : "OFF");
+}
+
+/**
+ * @brief 绘制最近一次按键事件区
+ *
+ * 这块信息对调试非常有帮助，因为它能直接告诉我们“系统最后一次识别到的事件是什么”。
+ */
+static esp_err_t display_service_draw_last_event_panel(void)
+{
+    char line[64];
+    snprintf(line, sizeof(line), "%s / %s",
+             display_service_button_to_string(s_display.last_button_id),
+             display_service_event_to_string(s_display.last_button_event));
+
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_EVENT_PANEL_X,
+        DISPLAY_EVENT_PANEL_Y,
+        DISPLAY_EVENT_AREA_W,
+        DISPLAY_EVENT_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = bsp_lcd_draw_string_scaled(
+        DISPLAY_EVENT_PANEL_X,
+        DISPLAY_EVENT_PANEL_Y,
+        "LAST :",
+        DISPLAY_COLOR_RED,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return bsp_lcd_draw_string_scaled(
+        DISPLAY_EVENT_VALUE_X,
+        DISPLAY_EVENT_PANEL_Y,
+        line,
+        DISPLAY_COLOR_RED,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
 }
 
 /**
  * @brief 初始化显示服务
  *
- * 这一层不关心屏幕具体怎么初始化，只要求 `bsp_lcd_init()` 成功后，
- * 把当前版本、阶段和默认状态写进显示缓存，然后绘制首页。
+ * 这一层不关心屏幕底层怎么初始化，只要求 `bsp_lcd_init()` 成功后，
+ * 把当前版本、阶段和默认状态写进显示缓存，然后触发首页绘制。
  */
 esp_err_t display_service_init(void)
 {
@@ -147,20 +397,23 @@ esp_err_t display_service_init(void)
         return ret;
     }
 
-    // 初始化时把项目当前版本和阶段先写进显示缓存，方便上电就能看到基本信息。
+    // 初始化时先把项目基本信息和默认状态写进缓存，后面首页刷新直接按缓存内容绘制。
     snprintf(s_display.version, sizeof(s_display.version), "%s", APP_PROJECT_VERSION);
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", APP_PROJECT_STAGE_NAME);
     s_display.beep_enabled = true;
     s_display.beep_test_mode = false;
-    s_display.dirty = true;
+    display_service_mark_full_refresh();
     s_display.inited = true;
 
     ESP_LOGI(TAG, "display service ready");
-    return display_service_refresh_home();// 初始化完成后直接刷新首页，让用户一上电就看到完整的状态信息。
+    // 初始化完成后立即刷新首页，让用户一上电就能看到完整状态页。
+    return display_service_refresh_home();
 }
 
 /**
  * @brief 全屏清空为黑色背景
+ *
+ * 这个接口只负责清屏，不修改显示缓存里的业务状态。
  */
 esp_err_t display_service_clear(void)
 {
@@ -181,7 +434,7 @@ esp_err_t display_service_show_version(const char *version)
     }
 
     snprintf(s_display.version, sizeof(s_display.version), "%s", version);
-    s_display.dirty = true;
+    s_display.project_info_dirty = true;
     return ESP_OK;
 }
 
@@ -195,7 +448,7 @@ esp_err_t display_service_show_stage(const char *stage)
     }
 
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", stage);
-    s_display.dirty = true;
+    s_display.project_info_dirty = true;
     return ESP_OK;
 }
 
@@ -210,7 +463,7 @@ esp_err_t display_service_show_last_button(button_id_t button_id, button_event_t
 
     s_display.last_button_id = button_id;
     s_display.last_button_event = button_event;
-    s_display.dirty = true;
+    s_display.event_panel_dirty = true;
     return ESP_OK;
 }
 
@@ -224,7 +477,7 @@ esp_err_t display_service_show_led_status(led_id_t led_id, led_mode_t mode)
     }
 
     s_display.led_modes[led_id] = mode;
-    s_display.dirty = true;
+    s_display.led_panel_dirty = true;
     return ESP_OK;
 }
 
@@ -239,15 +492,15 @@ esp_err_t display_service_show_beep_status(bool enabled, bool test_mode)
 
     s_display.beep_enabled = enabled;
     s_display.beep_test_mode = test_mode;
-    s_display.dirty = true;
+    s_display.beep_panel_dirty = true;
     return ESP_OK;
 }
 
 /**
  * @brief 按当前缓存内容重绘首页
  *
- * 当前版本采用最直接的“整页重绘”方式，先求稳定和易懂；
- * 后面如果要优化性能，再考虑局部刷新或脏区更新。
+ * 当前版本仍然保留“整页重绘”作为主策略，但已经把页面拆成多个区域函数，
+ * 后面如果要升级成局部刷新，就可以沿这些区域函数继续扩展。
  */
 esp_err_t display_service_refresh_home(void)
 {
@@ -255,89 +508,93 @@ esp_err_t display_service_refresh_home(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    char line[64];
-    // 每次刷新首页时先清屏，再按固定布局从上到下重画所有状态信息。
+    // 整页刷新主要用于初始化或页面需要整体重建时。
+    // 这里先清全屏，再按固定区域顺序重画所有内容。
     esp_err_t ret = display_service_clear();
     if (ret != ESP_OK) {
         return ret;
     }
-
-    // 标题用更大的字号，优先让版本首页一上电就容易辨认。
-    ret = bsp_lcd_draw_string_scaled(8, 8, "CODEX PROJECT", DISPLAY_COLOR_YELLOW, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_TITLE);
+    // 更新头部信息区
+    ret = display_service_draw_header();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    // 更新项目信息区
+    ret = display_service_draw_project_info();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    // 更新 LED 状态区
+    ret = display_service_draw_led_panel();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    // 更新蜂鸣器状态区
+    ret = display_service_draw_beep_panel();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    // 更新最近一次按键事件区
+    ret = display_service_draw_last_event_panel();
     if (ret != ESP_OK) {
         return ret;
     }
 
-    ret = display_service_draw_line(8, 24, DISPLAY_COLOR_WHITE, "VER", s_display.version);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = display_service_draw_line(8, 40, DISPLAY_COLOR_WHITE, "STAGE", s_display.stage);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    // 下面三行是 LED 状态区，方便把当前三路业务状态直接映射到屏幕。
-    snprintf(line, sizeof(line), "%s=%s", display_service_led_to_string(LED_ID_SYS), display_service_mode_to_string(s_display.led_modes[LED_ID_SYS]));
-    ret = bsp_lcd_draw_string_scaled(8, 88, line, DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    snprintf(line, sizeof(line), "%s=%s", display_service_led_to_string(LED_ID_NET), display_service_mode_to_string(s_display.led_modes[LED_ID_NET]));
-    ret = bsp_lcd_draw_string_scaled(8, 108, line, DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    snprintf(line, sizeof(line), "%s=%s", display_service_led_to_string(LED_ID_ERR), display_service_mode_to_string(s_display.led_modes[LED_ID_ERR]));
-    ret = bsp_lcd_draw_string_scaled(8, 128, line, DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    // 蜂鸣器状态区专门显示“开关”和“测试模式”两个关键状态。
-    snprintf(line, sizeof(line), "BEEP=%s", s_display.beep_enabled ? "ON" : "OFF");
-    ret = bsp_lcd_draw_string_scaled(8, 160, line, DISPLAY_COLOR_GREEN, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    snprintf(line, sizeof(line), "TEST=%s", s_display.beep_test_mode ? "ON" : "OFF");
-    ret = bsp_lcd_draw_string_scaled(8, 180, line, DISPLAY_COLOR_GREEN, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_BODY);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    // 最后一行显示最近一次按键事件，后续调试时非常直观。
-    snprintf(line, sizeof(line), "%s / %s",
-             display_service_button_to_string(s_display.last_button_id),
-             display_service_event_to_string(s_display.last_button_event));
-    ret = bsp_lcd_draw_string_scaled(8, 212, "LAST:", DISPLAY_COLOR_RED, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_SMALL);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = bsp_lcd_draw_string_scaled(48, 212, line, DISPLAY_COLOR_RED, DISPLAY_COLOR_BLACK, DISPLAY_TEXT_SCALE_SMALL);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    s_display.dirty = false;
+    s_display.full_refresh_pending = false;
+    s_display.header_dirty = false;
+    s_display.project_info_dirty = false;
+    s_display.led_panel_dirty = false;
+    s_display.beep_panel_dirty = false;
+    s_display.event_panel_dirty = false;
     return ESP_OK;
 }
 
 /**
  * @brief 显示服务周期处理
  *
- * 只要显示缓存被标记为 dirty，就在主循环里触发一次首页刷新。
+ * 当前版本优先使用“分区 dirty + 局部刷新”：
+ * 1. 如果需要整页重建，就走 full refresh
+ * 2. 否则只重画发生变化的区域
  */
 void display_service_process(void)
 {
-    if (!s_display.inited || !s_display.dirty) {
+    if (!s_display.inited) {
         return;
     }
 
-    (void)display_service_refresh_home();
+    if (s_display.full_refresh_pending) {
+        (void)display_service_refresh_home();
+        return;
+    }
+
+    
+    if (s_display.header_dirty) {
+        if (display_service_draw_header() == ESP_OK) {
+            s_display.header_dirty = false;
+        }
+    }
+
+    if (s_display.project_info_dirty) {
+        if (display_service_draw_project_info() == ESP_OK) {
+            s_display.project_info_dirty = false;
+        }
+    }
+
+    if (s_display.led_panel_dirty) {
+        if (display_service_draw_led_panel() == ESP_OK) {
+            s_display.led_panel_dirty = false;
+        }
+    }
+
+    if (s_display.beep_panel_dirty) {
+        if (display_service_draw_beep_panel() == ESP_OK) {
+            s_display.beep_panel_dirty = false;
+        }
+    }
+
+    if (s_display.event_panel_dirty) {
+        if (display_service_draw_last_event_panel() == ESP_OK) {
+            s_display.event_panel_dirty = false;
+        }
+    }
 }
