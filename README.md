@@ -1,29 +1,31 @@
-# ESP32 External GPIO Button LED Learning
+# ESP32 XL9555 Board Input Learning
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成第一阶段的“ESP32 直连外部按键与外部 LED”输入输出练习。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555` 板载输入基础练习，并继续复用现有统一事件架构。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
-- 显示名称：`ESP32 External GPIO Button LED Learning`
-- 当前版本：`v1.2.1`
+- 显示名称：`ESP32 XL9555 Board Input Learning`
+- 当前版本：`v1.3.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.2.1 Unified Event Message`
+- 当前阶段：`v1.3.0 XL9555 Driver Foundation`
 
 当前行为：
 
-- 使用 ESP32 GPIO 直接读取三个外部按键
-- 使用 ESP32 GPIO 直接控制三个外部 LED
-- 使用 3 路 GPIO 下降沿中断触发按键处理
+- 使用 `I2C0` 驱动 `XL9555`
+- 使用 `XL9555` 读取板载按键输入
+- 使用 `XL9555 INT -> ESP32 GPIO0` 触发按键处理
 - 引入 `FreeRTOS Queue` 传递按键事件
 - 新增 `app_event_task` 处理业务事件
 - 统一队列消息结构为通用事件格式
 - 主循环负责按键状态机和 LED 周期服务
-- 每个按键对应一个 LED
+- 当前仍保持三路事件映射到三路 LED
 - 支持按键消抖、单击、长按、双击三种手势
-- 每个按键独立配置为下降沿中断触发
 - 按键服务不再直接修改 LED，而是通过队列发送事件
 - 增加统一事件日志和基础发送/接收统计
+- 新增可复用的 `i2c_bus` 通用访问层
+- 新增可复用的 `xl9555` 驱动层
+- 新增 `bsp_xl9555` 板级适配层，预留蜂鸣器与 LCD 控制接口
 - 单击后，该 LED 在以下模式间循环切换：
   `OFF -> ON -> BLINK_SLOW -> BLINK_FAST -> OFF`
 - 长按后，对应 LED 无论当前状态如何都直接关闭
@@ -40,42 +42,55 @@
 - `main/`：程序入口，只负责打印启动信息并启动应用任务
 - `components/app/`：应用编排层，负责初始化服务和主循环调度
 - `components/services/`：业务服务层，负责 LED 模式控制和按键事件处理
-- `components/bsp/`：板级支持层，负责 GPIO 与硬件读写
+- `components/bsp/`：板级支持层，负责 GPIO、I2C、XL9555 与硬件读写
 - `components/system/`：系统配置与公共类型定义
 - `docs/`：补充说明文档和发布笔记
 
 ## 硬件连接
 
-本版本默认采用“外部元件直连 ESP32 GPIO”的学习方式，不依赖 `XL9555`。
+本版本开始切到 `DNESP32S3` 开发板的板载 `XL9555` 输入链路。
 
 ### LED
 
 | 名称 | GPIO | 点亮有效电平 | 默认上电状态 | 默认模式 |
 | --- | --- | --- | --- | --- |
-| 系统状态灯 `SYS` | `GPIO1` | 低电平有效 | 点亮 | 慢闪 |
+| 系统状态灯 `SYS` | `GPIO16` | 低电平有效 | 点亮 | 慢闪 |
 | 网络状态灯 `NET` | `GPIO19` | 高电平有效 | 点亮 | 快闪 |
 | 错误状态灯 `ERR` | `GPIO36` | 高电平有效 | 点亮 | 关闭 |
 
-### 按键
+### XL9555 / I2C
 
-| 名称 | GPIO | 输入配置 | 按下判定 |
+| 项目 | 配置 |
+| --- | --- |
+| `I2C 地址` | `0x20` |
+| `SDA` | `GPIO41` |
+| `SCL` | `GPIO42` |
+| `INT` | `GPIO0` |
+| `INT 上拉` | 内部上拉 |
+
+### 板载按键
+
+| 名称 | XL9555 引脚 | 有效电平 | 当前映射 |
 | --- | --- | --- | --- |
-| `BTN_SYS` | `GPIO0` | 内部上拉 | 低电平按下 |
-| `BTN_NET` | `GPIO7` | 内部上拉 | 低电平按下 |
-| `BTN_ERR` | `GPIO16` | 内部上拉 | 低电平按下 |
+| `KEY0` | `IO1_7` | 低电平有效 | `BTN_SYS` |
+| `KEY1` | `IO1_6` | 低电平有效 | `BTN_NET` |
+| `KEY2` | `IO1_5` | 低电平有效 | `BTN_ERR` |
+| `KEY3` | `IO1_4` | 低电平有效 | 预留 |
 
-中断方式：
+### 其他板载控制口
 
-- `BTN_SYS`：下降沿中断
-- `BTN_NET`：下降沿中断
-- `BTN_ERR`：下降沿中断
+| 资源 | XL9555 引脚 |
+| --- | --- |
+| `BEEP` | `IO0_3` |
+| `LCD_CTRL0` | `IO1_3` |
+| `LCD_CTRL1` | `IO1_2` |
 
 说明：
 
-- `GPIO0` 常用于启动相关功能，接线前请结合开发板原理图确认不会影响下载或启动。
-- 三个按键默认按“内部上拉 + 按下接地”的方式接线，也就是低电平按下。
-- 如果外部 LED 使用方式不同，优先修改 `components/system/app_config.h` 中的 GPIO 和有效电平配置。
-- 如果硬件连接变化，优先修改 `components/system/app_config.h` 中的 GPIO 和默认模式配置。
+- `GPIO0` 同时和 `BOOT` 复用，本版本把它作为 `XL9555 INT` 输入使用。
+- 板载按键通过 `XL9555` 读取，按下为低电平有效。
+- 如果板级接法变化，优先修改 `components/system/app_config.h` 中的 `I2C / XL9555` 配置。
+- 如果外部 LED 使用方式不同，优先修改 `components/system/app_config.h` 中的 LED GPIO 和有效电平配置。
 
 按键时序参数同样集中在 `components/system/app_config.h`：
 
@@ -90,7 +105,7 @@
 - 项目名、显示名、版本号、目标芯片
 - 任务名、任务栈大小、任务优先级、主循环周期
 - 三路 LED 的 GPIO、有效电平、默认上电状态、默认模式
-- 三个按键的 GPIO、按下有效电平、按钮数量
+- `I2C` 总线配置、`XL9555` 地址、板级引脚映射
 - LED 快闪和慢闪周期
 
 ## 开发与验证
@@ -108,10 +123,10 @@ idf.py -p COM3 monitor
 - 统一的项目显示名称、版本号与学习阶段
 - `app_main_task` 创建成功
 - LED 服务与按键服务初始化成功
-- 当前外部 GPIO 映射打印完成
+- 当前 `I2C / XL9555` 映射打印完成
 - 按键服务打印消抖、长按、双击配置时间
 - 事件任务日志打印统一事件接收、处理和 LED 模式变化
-- 按键初始化日志打印 `intr=negedge`
+- 按键初始化日志打印 `source=XL9555`
 - 默认 LED 模式已应用
 
 上板验证建议：
@@ -121,8 +136,8 @@ idf.py -p COM3 monitor
 3. 长按任一按键约 `0.8s`，确认对应 LED 无论当前状态如何都直接关闭。
 4. 快速双击任一按键，确认对应 LED 无论当前状态如何都直接进入快闪。
 5. 观察串口日志，确认能看到按键名称、手势类型、对应 LED 名称和模式切换过程。
-6. 确认启动日志打印了 `button_service -> unified_event_queue -> app_event_task -> led_service` 事件链路。
-7. 确认启动日志打印的 GPIO 映射与 `intr=negedge` 信息一致。
+6. 确认启动日志打印了 `XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service` 事件链路。
+7. 确认启动日志打印的 `I2C / XL9555` 映射和板子连接关系一致。
 
 ## 发布与维护
 

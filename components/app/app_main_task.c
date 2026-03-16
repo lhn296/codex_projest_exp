@@ -23,13 +23,14 @@ static void app_main_task_log_gpio_mapping(void)
     ESP_LOGI(TAG, "  ERR -> GPIO%d active_level=%d default_mode=%d",
              APP_ERR_LED_GPIO, APP_ERR_LED_ACTIVE_LEVEL, APP_LED_ERR_DEFAULT_MODE);
 
-    ESP_LOGI(TAG, "External button mapping:");
-    ESP_LOGI(TAG, "  BTN_SYS -> GPIO%d active_level=%d intr=negedge",
-             APP_BTN_SYS_GPIO, APP_BUTTON_ACTIVE_LEVEL);
-    ESP_LOGI(TAG, "  BTN_NET -> GPIO%d active_level=%d intr=negedge",
-             APP_BTN_NET_GPIO, APP_BUTTON_ACTIVE_LEVEL);
-    ESP_LOGI(TAG, "  BTN_ERR -> GPIO%d active_level=%d intr=negedge",
-             APP_BTN_ERR_GPIO, APP_BUTTON_ACTIVE_LEVEL);
+    ESP_LOGI(TAG, "I2C / XL9555 mapping:");
+    ESP_LOGI(TAG, "  I2C0 -> SDA GPIO%d SCL GPIO%d addr=0x%02X",
+             APP_I2C_MASTER_SDA_GPIO, APP_I2C_MASTER_SCL_GPIO, APP_XL9555_I2C_ADDR);
+    ESP_LOGI(TAG, "  XL9555 INT -> GPIO%d pullup=internal intr=negedge",
+             APP_XL9555_INT_GPIO);
+    ESP_LOGI(TAG, "  KEY0 -> IO1_7 KEY1 -> IO1_6 KEY2 -> IO1_5 KEY3 -> IO1_4 active_level=%d",
+             APP_XL9555_KEY_ACTIVE_LEVEL);
+    ESP_LOGI(TAG, "  BEEP -> IO0_3 LCD_CTRL -> IO1_3 IO1_2");
 }
 
 /* 默认模式集中在配置层，这里只负责把配置应用到运行时。 */
@@ -87,7 +88,7 @@ static void app_main_task(void *param)
              APP_LED_SYS_DEFAULT_MODE,
              APP_LED_NET_DEFAULT_MODE,
              APP_LED_ERR_DEFAULT_MODE);
-    ESP_LOGI(TAG, "Event flow: button_service -> unified_event_queue -> app_event_task -> led_service");
+    ESP_LOGI(TAG, "Event flow: XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service");
 
     while (1) {
         // v1.2.0 开始，按键服务只负责识别事件并投递到队列；

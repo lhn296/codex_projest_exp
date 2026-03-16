@@ -1,41 +1,44 @@
 #include "bsp_button.h"
+#include "bsp_xl9555.h"
 #include "app_config.h"
-#include "driver/gpio.h"
 #include "esp_log.h"
 #include <stdint.h>
 
 static const char *TAG = "BSP_BTN";
+static volatile uint32_t s_xl9555_irq_count = 0;
 
 /**
  * @brief 按钮对象结构体
  */
 typedef struct {
-    gpio_num_t gpio_num;
     bool inited;
-    volatile bool press_irq_pending; // ISR 只置位这个标志，业务层再来消费
+    volatile bool press_irq_pending; // XL9555 共用一根 INT，ISR 到来时给所有按键都置位
 } bsp_button_obj_t;
 
 /* 按钮对象数组 */
 static bsp_button_obj_t s_buttons[BTN_MAX] = {
-    [BTN_SYS] = {APP_BTN_SYS_GPIO, false, false},
-    [BTN_NET] = {APP_BTN_NET_GPIO, false, false},
-    [BTN_ERR] = {APP_BTN_ERR_GPIO, false, false},
+    [BTN_SYS] = {false, false},
+    [BTN_NET] = {false, false},
+    [BTN_ERR] = {false, false},
 };
 
-static bool s_isr_service_inited = false;
+static bool s_button_hw_inited = false;
 
 static inline bool bsp_button_is_valid_id(button_id_t btn_id)
 {
     return (btn_id >= 0) && (btn_id < APP_BUTTON_COUNT);
 }
 
-/* ISR 必须尽量短小，这里只做“哪个按键触发了下降沿”的标记。 */
-static void IRAM_ATTR bsp_button_gpio_isr_handler(void *arg)
+/* XL9555 只有一根 INT 线，任何板载按键动作都会通过这根线把服务层唤醒。 */
+static void IRAM_ATTR bsp_button_xl9555_int_isr_handler(void *arg)
 {
-    uintptr_t btn_index = (uintptr_t)arg; //    
+    (void)arg;
+    s_xl9555_irq_count++;
 
-    if (btn_index < BTN_MAX) {
-        s_buttons[btn_index].press_irq_pending = true;
+    for (int i = 0; i < BTN_MAX; i++) {
+        if (s_buttons[i].inited) {
+            s_buttons[i].press_irq_pending = true;
+        }
     }
 }
 
@@ -51,45 +54,63 @@ esp_err_t bsp_button_init(button_id_t btn_id)
         return ESP_ERR_INVALID_ARG;
     }
 
-    bsp_button_obj_t *btn = &s_buttons[btn_id];// 获取按键对象
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << btn->gpio_num),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
-    };
-    esp_err_t ret = gpio_config(&io_conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "gpio_config failed, btn_id=%d, gpio=%d, ret=0x%x",
-                 btn_id, btn->gpio_num, ret);
-        return ret;
-    }
-
-    /* GPIO ISR 服务是全局资源，只需要安装一次。 */
-    if (!s_isr_service_inited) {
-        ret = gpio_install_isr_service(0); // 默认配置，使用 GPIO_INTR_FLAG_DEFAULT
-        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-            ESP_LOGE(TAG, "gpio_install_isr_service failed, ret=0x%x", ret);
+    esp_err_t ret = ESP_OK;
+    if (!s_button_hw_inited) {
+        // 先完成 XL9555 板级初始化，再让按键服务复用原有状态机。
+        ret = bsp_xl9555_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "bsp_xl9555_init failed, ret=0x%x", ret);
+            return ret;
+        }
+        
+        ret = bsp_xl9555_keys_init();// 这个函数会把 XL9555 上的按键引脚配置成输入并启用内部上拉，同时把按键映射关系告诉驱动层，方便后续读取。
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "bsp_xl9555_keys_init failed, ret=0x%x", ret);
             return ret;
         }
 
-        s_isr_service_inited = true;
+        // 先把已知的输出资源切到输出模式，避免它们还停留在输入态时持续干扰 INT。
+        ret = bsp_xl9555_beep_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "bsp_xl9555_beep_init failed, ret=0x%x", ret);
+            return ret;
+        }
+
+        ret = bsp_xl9555_lcd_ctrl_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "bsp_xl9555_lcd_ctrl_init failed, ret=0x%x", ret);
+            return ret;
+        }
+
+        ret = bsp_xl9555_int_init(bsp_button_xl9555_int_isr_handler, NULL);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "bsp_xl9555_int_init failed, ret=0x%x", ret);
+            return ret;
+        }
+
+        // 如果初始化后 INT 仍然是低电平，说明这根线可能已经带着历史中断状态。
+        // 这时先给日志留痕，后续上板时就能快速判断中断线是否被一直拉低。
+        int int_level = bsp_xl9555_int_get_level();
+        if (int_level == 0) {
+            ESP_LOGW(TAG, "XL9555 INT line is low after init, check wiring or latch state");
+        }
+
+        s_button_hw_inited = true;
     }
 
-    /* 每个按键各自绑定一个下降沿中断处理入口。 */
-    ret = gpio_isr_handler_add(btn->gpio_num, bsp_button_gpio_isr_handler, (void *)(uintptr_t)btn_id);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "gpio_isr_handler_add failed, btn_id=%d, gpio=%d, ret=0x%x",
-                 btn_id, btn->gpio_num, ret);
-        return ret;
+    bsp_button_obj_t *btn = &s_buttons[btn_id];
+    if (btn->inited) {
+        return ESP_OK;
     }
 
     btn->inited = true;
     btn->press_irq_pending = false;
 
-    ESP_LOGI(TAG, "Button init success, btn_id=%d, gpio=%d, active_level=%d, intr=negedge",
-             btn_id, btn->gpio_num, APP_BUTTON_ACTIVE_LEVEL);
+    ESP_LOGI(TAG, "Button init success, btn_id=%d, source=XL9555 INT_GPIO=%d int_level=%d irq_count=%lu",
+             btn_id,
+             APP_XL9555_INT_GPIO,
+             bsp_xl9555_int_get_level(),
+             (unsigned long)s_xl9555_irq_count);
     return ESP_OK;
 }
 
@@ -104,7 +125,7 @@ bool bsp_button_read(button_id_t btn_id)
         return false;
     }
 
-    return gpio_get_level(s_buttons[btn_id].gpio_num) == APP_BUTTON_ACTIVE_LEVEL;
+    return bsp_xl9555_key_read(btn_id);
 }
 
 /**
@@ -118,7 +139,7 @@ bool bsp_button_consume_press_irq(button_id_t btn_id)
         return false;
     }
 
-    /* 服务层读取后立即清零，形成一次性的“中断通知”。 */
+    /* 共用 INT 线时，把一次中断广播成所有按键的一次“开始检查”机会。 */
     bool pending = s_buttons[btn_id].press_irq_pending;
     s_buttons[btn_id].press_irq_pending = false;
     return pending;

@@ -2,6 +2,7 @@
 #define APP_CONFIG_H
 
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "app_types.h"
 
 #ifdef __cplusplus
@@ -12,14 +13,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 External GPIO Button LED Learning"
-#define APP_PROJECT_VERSION               "v1.2.1"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 XL9555 Board Input Learning"
+#define APP_PROJECT_VERSION               "v1.3.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.2.1 Unified Event Message"
+#define APP_PROJECT_STAGE_NAME            "v1.3.0 XL9555 Driver Foundation"
 
 /* =========================
  * SYS LED 配置
@@ -52,16 +53,36 @@ extern "C" {
 #define APP_LED_ERR_DEFAULT_MODE          LED_MODE_OFF
 
 /* =========================
- * 按键 GPIO 配置
+ * I2C / XL9555 配置
  * ========================= */
-#define APP_BTN_SYS_GPIO                   GPIO_NUM_0
-#define APP_BTN_NET_GPIO                   GPIO_NUM_7
-#define APP_BTN_ERR_GPIO                   GPIO_NUM_16
-#define APP_BUTTON_ACTIVE_LEVEL            0
-#define APP_BUTTON_COUNT                   BTN_MAX
-#define APP_BUTTON_DEBOUNCE_MS             30
-#define APP_BUTTON_LONG_PRESS_MS           800
-#define APP_BUTTON_DOUBLE_CLICK_MS         300
+#define APP_I2C_MASTER_PORT               I2C_NUM_0
+#define APP_I2C_MASTER_SDA_GPIO           GPIO_NUM_41
+#define APP_I2C_MASTER_SCL_GPIO           GPIO_NUM_42
+#define APP_I2C_MASTER_FREQ_HZ            400000
+#define APP_I2C_XFER_TIMEOUT_MS           100
+
+#define APP_XL9555_I2C_ADDR               0x20
+#define APP_XL9555_INT_GPIO               GPIO_NUM_39
+#define APP_XL9555_KEY_ACTIVE_LEVEL       0
+
+// XL9555 引脚编号按 0~15 映射：IO0_0~IO0_7 = 0~7, IO1_0~IO1_7 = 8~15
+#define APP_XL9555_BEEP_PIN               3    // IO0_3
+#define APP_XL9555_LCD_CTRL0_PIN          11   // IO1_3
+#define APP_XL9555_LCD_CTRL1_PIN          10   // IO1_2
+#define APP_XL9555_KEY0_PIN               15   // IO1_7
+#define APP_XL9555_KEY1_PIN               14   // IO1_6
+#define APP_XL9555_KEY2_PIN               13   // IO1_5
+#define APP_XL9555_KEY3_PIN               12   // IO1_4
+
+/* =========================
+ * 按键服务配置
+ * ========================= */
+#define APP_BUTTON_COUNT                  BTN_MAX
+#define APP_BUTTON_DEBOUNCE_MS            30
+#define APP_BUTTON_LONG_PRESS_MS          800
+#define APP_BUTTON_DOUBLE_CLICK_MS        300
+#define APP_BUTTON_INT_ONLY_DEBUG         0
+#define APP_BUTTON_IDLE_SCAN_PERIOD_MS    20
 
 
 /* =========================

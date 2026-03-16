@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.0 - 2026-03-15
+
+### Added
+- Added a reusable `i2c_bus` access layer for bus init, device probe, and register read/write helpers.
+- Added a reusable `xl9555` driver layer with port direction, pin read/write, and bit operation helpers.
+- Added a `bsp_xl9555` board-adaptation layer for board keys, beep, LCD control pins, and shared INT setup.
+
+### Changed
+- Changed button input from direct ESP32 GPIO to board `XL9555` based key input with shared INT wake-up.
+- Changed `APP_SYS_LED_GPIO` to `GPIO16` so `GPIO0` can be reserved for `XL9555 INT`.
+- Updated project metadata and startup logs to describe the `v1.3.0` XL9555 driver foundation stage.
+
 ## v1.2.1 - 2026-03-14
 
 ### Added

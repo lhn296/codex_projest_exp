@@ -10,6 +10,7 @@ static const char *TAG = "BTN_SERVICE";
 static QueueHandle_t s_button_event_queue = NULL;
 static uint32_t s_event_send_ok_count = 0;
 static uint32_t s_event_send_fail_count = 0;
+static int64_t s_last_idle_scan_time_ms = 0;
 
 /* 按钮对象结构体 */
 typedef struct {
@@ -56,6 +57,19 @@ static const char *button_service_type_to_string(app_event_type_t type)
             return "UNKNOWN_TYPE";
     }
 }
+
+#if APP_BUTTON_INT_ONLY_DEBUG
+static bool button_service_idle_scan_enabled(void)
+{
+    // 纯 INT 调试模式下，空闲时不再周期轮询，方便确认 XL9555 INT 链路是否真的工作。
+    return false;
+}
+#else
+static bool button_service_idle_scan_enabled(void)
+{
+    return true;
+}
+#endif
 
 static bool button_service_should_poll(const button_obj_t *btn)
 {
@@ -146,10 +160,12 @@ esp_err_t button_service_init(QueueHandle_t event_queue)
     }
 
     ESP_LOGI(TAG,
-             "Button service init done, mode=interrupt+unified-event debounce=%dms long=%dms double=%dms",
+             "Button service init done, mode=%s debounce=%dms long=%dms double=%dms idle_scan=%dms",
+             button_service_idle_scan_enabled() ? "xl9555-int+poll-fallback" : "xl9555-int-only-debug",
              APP_BUTTON_DEBOUNCE_MS,
              APP_BUTTON_LONG_PRESS_MS,
-             APP_BUTTON_DOUBLE_CLICK_MS);
+             APP_BUTTON_DOUBLE_CLICK_MS,
+             APP_BUTTON_IDLE_SCAN_PERIOD_MS);
     return ESP_OK;
 }
 
@@ -159,6 +175,15 @@ esp_err_t button_service_init(QueueHandle_t event_queue)
 void button_service_process(void)
 {
     int64_t now_ms = button_service_get_time_ms();
+    bool force_idle_scan = false;
+
+    // 正常模式下使用“中断优先 + 周期轮询兜底”。
+    // 调试 XL9555 INT 时可以关闭兜底，只保留纯中断链，方便观察 irq 日志。
+    if (button_service_idle_scan_enabled() &&
+        (now_ms - s_last_idle_scan_time_ms) >= APP_BUTTON_IDLE_SCAN_PERIOD_MS) {
+        force_idle_scan = true;
+        s_last_idle_scan_time_ms = now_ms;
+    }
 
     for (int i = 0; i < APP_BUTTON_COUNT; i++) {
         button_obj_t *btn = &s_btn_objs[i];
@@ -168,6 +193,7 @@ void button_service_process(void)
             // 下降沿中断只负责告诉服务层“某个按键开始有动作了”，
             // 真正的消抖、长按和双击判断仍留在普通上下文中处理。
             btn->irq_tracking = true;
+            ESP_LOGI(TAG, "irq wake btn=%d", btn->btn_id);
 
             // 下降沿意味着“可能开始按下”，先把原始状态推进到按下候选态，
             // 后面仍要经过 debounce 时间才能成为稳定按下。
@@ -177,7 +203,7 @@ void button_service_process(void)
             }
         }
         // 没有中断且当前按键状态完全静止（不管是按下还是未按），就不必浪费 CPU 去轮询了。
-        if (!button_service_should_poll(btn)) {
+        if (!force_idle_scan && !button_service_should_poll(btn)) {
             continue;
         }
 
