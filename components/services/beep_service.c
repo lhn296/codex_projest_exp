@@ -8,16 +8,16 @@
 static const char *TAG = "BEEP_SERVICE";
 
 typedef struct {
-    bool inited;
-    bool enabled;
-    bool test_mode;
-    bool output_on;
-    bool sequence_active;
-    uint8_t remaining_pulses;
-    uint32_t on_ms;
-    uint32_t off_ms;
-    int64_t last_change_time_ms;
-    int64_t last_test_trigger_time_ms;
+    bool inited; // 是否完成初始化
+    bool enabled; // 蜂鸣提示是否启用，适合业务键提示音的开关
+    bool test_mode; // 是否处于测试模式，测试模式下会持续发出提示音，适合功能键的测试状态
+    bool output_on;// 当前输出状态，true=正在响，false=正在间隔
+    bool sequence_active; // 是否有活动的提示时序，true=正在执行一个提示节奏，false=空闲状态
+    uint8_t remaining_pulses; // 当前提示节奏剩余的响次数，0 表示当前周期结束
+    uint32_t on_ms; // 当前提示节奏的响时长，单位毫秒
+    uint32_t off_ms;// 当前提示节奏的间隔时长，单位毫秒
+    int64_t last_change_time_ms;// 上次状态变化时间，单位毫秒，用于时序推进的时间判断
+    int64_t last_test_trigger_time_ms;// 上次测试模式触发时间，单位毫秒，用于测试模式下的节奏控制
 } beep_service_ctx_t;
 
 static beep_service_ctx_t s_beep = {
@@ -192,16 +192,16 @@ void beep_service_process(void)
     // 测试模式下，空闲时每隔一段时间自动发一个短提示音，方便确认蜂鸣器链路是否正常。
     if (s_beep.test_mode &&
         !s_beep.sequence_active &&
-        (now_ms - s_beep.last_test_trigger_time_ms) >= APP_BEEP_TEST_INTERVAL_MS) {
+        (now_ms - s_beep.last_test_trigger_time_ms) >= APP_BEEP_TEST_INTERVAL_MS) { 
         s_beep.last_test_trigger_time_ms = now_ms;
         (void)beep_service_play_force(BEEP_PATTERN_SHORT);
     }
 
-    if (!s_beep.sequence_active) {
+    if (!s_beep.sequence_active) {// 没有活动的提示时序，不用处理。
         return;
     }
 
-    if (s_beep.output_on) {
+    if (s_beep.output_on) { // 当前正在响，判断是否该关了。
         if ((now_ms - s_beep.last_change_time_ms) < s_beep.on_ms) {
             return;
         }
@@ -211,19 +211,19 @@ void beep_service_process(void)
         return;
     }
 
-    if ((now_ms - s_beep.last_change_time_ms) < s_beep.off_ms) {
+    if ((now_ms - s_beep.last_change_time_ms) < s_beep.off_ms) { // 当前正在间隔，判断是否该响了。
         return;
     }
 
-    if (s_beep.remaining_pulses > 0) {
+    if (s_beep.remaining_pulses > 0) { // 还有剩余的响次数，继续下一轮。
         s_beep.remaining_pulses--;
     }
 
-    if (s_beep.remaining_pulses == 0) {
+    if (s_beep.remaining_pulses == 0) { // 没有剩余的响次数了，结束时序。
         s_beep.sequence_active = false;
         return;
     }
 
-    (void)beep_service_output_set(true);
+    (void)beep_service_output_set(true); // 继续下一轮响，设置时候发出的生效
     s_beep.last_change_time_ms = now_ms;
 }

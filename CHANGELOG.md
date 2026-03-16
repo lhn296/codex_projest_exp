@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.4.0 - 2026-03-16
+
+### Added
+- Added reusable `spi_bus` driver helpers for SPI bus init, device registration, and raw transmit wrappers.
+- Added reusable `lcd_st7789v` display driver with init, fill, and basic text drawing helpers.
+- Added `bsp_lcd` board-adaptation layer to combine `XL9555` power/reset control with LCD SPI setup.
+- Added `display_service` to show version, stage, LED status, buzzer status, and last button event on the LCD home page.
+
+### Changed
+- Changed project positioning from board interaction learning to SPI LCD display template learning.
+- Changed the unified event task so button events now refresh LCD state together with LED and buzzer feedback.
+- Updated startup logs and metadata to describe the `v1.4.0` SPI LCD display template stage.
+
 ## v1.3.1 - 2026-03-16
 
 ### Added

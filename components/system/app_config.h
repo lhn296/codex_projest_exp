@@ -3,6 +3,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/spi_master.h"
 #include "app_types.h"
 
 #ifdef __cplusplus
@@ -13,14 +14,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 XL9555 Board Input Learning"
-#define APP_PROJECT_VERSION               "v1.3.1"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 SPI LCD Display Template"
+#define APP_PROJECT_VERSION               "v1.4.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.3.1 XL9555 Board Interaction"
+#define APP_PROJECT_STAGE_NAME            "v1.4.0 SPI LCD Display Template"
 
 /* =========================
  * SYS LED 配置
@@ -74,6 +75,30 @@ extern "C" {
 #define APP_XL9555_KEY1_PIN               14   // IO1_6
 #define APP_XL9555_KEY2_PIN               13   // IO1_5
 #define APP_XL9555_KEY3_PIN               12   // IO1_4
+
+/* =========================
+ * LCD / SPI 配置
+ * ========================= */
+#define APP_LCD_RST_PIN                   APP_XL9555_LCD_CTRL1_PIN
+#define APP_LCD_PWR_PIN                   APP_XL9555_LCD_CTRL0_PIN
+#define APP_LCD_WIDTH                     320
+#define APP_LCD_HEIGHT                    240
+#define APP_LCD_SPI_HOST                  SPI2_HOST
+#define APP_LCD_SPI_MOSI_GPIO             GPIO_NUM_11
+#define APP_LCD_SPI_MISO_GPIO             GPIO_NUM_NC
+#define APP_LCD_SPI_DC_GPIO               GPIO_NUM_13
+#define APP_LCD_SPI_SCLK_GPIO             GPIO_NUM_12
+#define APP_LCD_SPI_CS_GPIO               GPIO_NUM_21
+#define APP_LCD_SPI_CLOCK_HZ              (20 * 1000 * 1000)
+#define APP_LCD_SPI_QUEUE_SIZE            8
+#define APP_LCD_SPI_MAX_TRANSFER_SZ       (APP_LCD_WIDTH * 40 * 2)
+#define APP_LCD_ROTATION_LANDSCAPE        1
+#define APP_LCD_X_OFFSET                  0
+#define APP_LCD_Y_OFFSET                  0
+#define APP_LCD_PWR_ON_LEVEL              1
+#define APP_LCD_PWR_OFF_LEVEL             0
+#define APP_LCD_RST_ACTIVE_LEVEL          0
+#define APP_LCD_RST_INACTIVE_LEVEL        1
 
 /* =========================
  * 按键服务配置

@@ -2,10 +2,15 @@ idf_component_register(
     SRCS
         "i2c_bus.c"
         "xl9555.c"
+        "spi_bus.c"
+        "lcd_st7789v.c"
     INCLUDE_DIRS
         "."
     REQUIRES
         esp_driver_i2c
+        esp_driver_gpio
+        esp_driver_spi
+        freertos
         log
         system
 )

@@ -3,6 +3,7 @@
 #include "app_config.h"
 #include "app_types.h"
 #include "beep_service.h"
+#include "display_service.h"
 #include "led_service.h"
 #include "esp_log.h"
 #include "freertos/task.h"
@@ -12,6 +13,9 @@ static QueueHandle_t s_event_queue = NULL;
 static uint32_t s_event_recv_count = 0;
 static uint32_t s_event_handle_count = 0;
 
+/**
+ * @brief 把事件来源转成日志文本
+ */
 static const char *app_event_source_to_string(app_event_source_t source)
 {
     switch (source) {
@@ -25,6 +29,9 @@ static const char *app_event_source_to_string(app_event_source_t source)
     }
 }
 
+/**
+ * @brief 把事件类型转成日志文本
+ */
 static const char *app_event_type_to_string(app_event_type_t type)
 {
     switch (type) {
@@ -38,6 +45,9 @@ static const char *app_event_type_to_string(app_event_type_t type)
     }
 }
 
+/**
+ * @brief 把按键编号转成日志文本
+ */
 static const char *app_event_button_to_string(button_id_t btn_id)
 {
     switch (btn_id) {
@@ -54,20 +64,9 @@ static const char *app_event_button_to_string(button_id_t btn_id)
     }
 }
 
-static const char *app_event_led_to_string(led_id_t led_id)
-{
-    switch (led_id) {
-        case LED_ID_SYS:
-            return "SYS_LED";
-        case LED_ID_NET:
-            return "NET_LED";
-        case LED_ID_ERR:
-            return "ERR_LED";
-        default:
-            return "UNKNOWN_LED";
-    }
-}
-
+/**
+ * @brief 把按键事件转成日志文本
+ */
 static const char *app_event_button_event_to_string(button_event_t event)
 {
     switch (event) {
@@ -83,6 +82,26 @@ static const char *app_event_button_event_to_string(button_event_t event)
     }
 }
 
+/**
+ * @brief 把 LED 编号转成日志文本
+ */
+static const char *app_event_led_to_string(led_id_t led_id)
+{
+    switch (led_id) {
+        case LED_ID_SYS:
+            return "SYS_LED";
+        case LED_ID_NET:
+            return "NET_LED";
+        case LED_ID_ERR:
+            return "ERR_LED";
+        default:
+            return "UNKNOWN_LED";
+    }
+}
+
+/**
+ * @brief 把 LED 模式转成日志文本
+ */
 static const char *app_event_mode_to_string(led_mode_t mode)
 {
     switch (mode) {
@@ -99,6 +118,9 @@ static const char *app_event_mode_to_string(led_mode_t mode)
     }
 }
 
+/**
+ * @brief 按按键事件类型映射蜂鸣器提示模式
+ */
 static beep_pattern_t app_event_get_beep_pattern_for_button_event(button_event_t event)
 {
     switch (event) {
@@ -114,6 +136,9 @@ static beep_pattern_t app_event_get_beep_pattern_for_button_event(button_event_t
     }
 }
 
+/**
+ * @brief 按按键事件类型推导 LED 的下一个模式
+ */
 static led_mode_t app_event_get_next_mode_for_button_event(led_mode_t cur_mode, button_event_t event)
 {
     switch (event) {
@@ -129,32 +154,49 @@ static led_mode_t app_event_get_next_mode_for_button_event(led_mode_t cur_mode, 
     }
 }
 
-/* 处理功能键事件 */
+/**
+ * @brief 把蜂鸣器当前状态同步到显示服务
+ */
+static void app_event_update_display_for_beep(void)
+{
+    (void)display_service_show_beep_status(
+        beep_service_is_enabled(),
+        beep_service_is_test_mode_enabled());
+}
+
+/**
+ * @brief 处理功能键事件
+ *
+ * BTN_FUNC 不参与 LED 模式切换，而是专门负责蜂鸣器相关功能控制。
+ */
 static void app_event_handle_function_button(button_event_t button_event)
 {
-    // KEY3 不再映射成第 4 路 LED，而是作为“功能键”去管理蜂鸣器相关状态。
-    // 这样业务键和系统功能键职责分开，后面扩展菜单或模式切换会更自然。
     switch (button_event) {
         case BUTTON_EVENT_SHORT: {
-            bool enabled = !beep_service_is_enabled(); // 切换蜂鸣器开关状态
-            (void)beep_service_set_enabled(enabled);    // 同步设置生效状态
-            // 无论是开还是关，都强制发一个提示音，让用户有明确的反馈，知道按键操作成功了。
-            (void)beep_service_play_force(enabled ? BEEP_PATTERN_DOUBLE : BEEP_PATTERN_SHORT);// 开启时发双声，关闭时发单声，方便区分两种状态。
+            // 单击功能键：切换蜂鸣器提示开关，并发一个确认音。
+            bool enabled = !beep_service_is_enabled();
+            (void)beep_service_set_enabled(enabled);
+            (void)beep_service_play_force(enabled ? BEEP_PATTERN_DOUBLE : BEEP_PATTERN_SHORT);
+            app_event_update_display_for_beep();
             ESP_LOGI(TAG, "function key short -> beep enabled=%d", enabled);
             break;
         }
 
         case BUTTON_EVENT_LONG:
+            // 长按功能键：关闭蜂鸣器提示，同时退出测试模式。
             (void)beep_service_set_test_mode(false);
             (void)beep_service_set_enabled(false);
             (void)beep_service_play_force(BEEP_PATTERN_LONG);
+            app_event_update_display_for_beep();
             ESP_LOGI(TAG, "function key long -> beep all disabled");
             break;
 
         case BUTTON_EVENT_DOUBLE: {
+            // 双击功能键：切换蜂鸣器测试模式。
             bool test_mode = !beep_service_is_test_mode_enabled();
             (void)beep_service_set_test_mode(test_mode);
             (void)beep_service_play_force(BEEP_PATTERN_DOUBLE);
+            app_event_update_display_for_beep();
             ESP_LOGI(TAG, "function key double -> beep test_mode=%d", test_mode);
             break;
         }
@@ -165,8 +207,12 @@ static void app_event_handle_function_button(button_event_t button_event)
     }
 }
 
-// 事件任务负责把统一事件消息翻译成具体业务动作。
-// v1.3.1 开始，业务键会驱动 LED + 蜂鸣反馈，功能键则负责蜂鸣器开关与测试模式。
+/**
+ * @brief 处理按键事件消息
+ *
+ * 统一事件任务的职责不是自己去扫按键，而是把 button_service 发布过来的事件
+ * 翻译成具体业务动作。v1.4.0 起，这里同时负责同步 LED、BEEP 和 LCD 状态。
+ */
 static void app_event_handle_button_message(const app_event_msg_t *msg)
 {
     button_id_t button_id = (button_id_t)msg->param1;
@@ -181,15 +227,16 @@ static void app_event_handle_button_message(const app_event_msg_t *msg)
              (long long)msg->timestamp_ms,
              (unsigned long)s_event_handle_count);
 
-    // 如果按键是功能键，就不走 LED 主线了，单独处理蜂鸣器相关状态；
+    // 不管是业务键还是功能键，最近一次按键事件都同步到 LCD 首页。
+    (void)display_service_show_last_button(button_id, button_event);
+
     if (button_id == BTN_FUNC) {
-        app_event_handle_function_button(button_event);// 功能键单独处理
+        app_event_handle_function_button(button_event);
         return;
     }
 
     if (button_id >= BTN_SYS && button_id <= BTN_ERR) {
-        // 三个业务键继续沿用“按键事件 -> LED 模式变化”的主线，
-        // 同时顺手补一条蜂鸣反馈，让同一个输入事件可以驱动多种输出。
+        // 业务键仍然沿用“按键 -> LED 模式变化”的主线，同时附带蜂鸣反馈和显示更新。
         led_id_t led_id = (led_id_t)button_id;
         led_mode_t cur_mode = led_service_get_mode(led_id);
         led_mode_t next_mode = app_event_get_next_mode_for_button_event(cur_mode, button_event);
@@ -200,17 +247,25 @@ static void app_event_handle_button_message(const app_event_msg_t *msg)
                  app_event_mode_to_string(next_mode));
 
         if (next_mode != cur_mode) {
-            led_service_set_mode(led_id, next_mode);
+            // 只有模式真的变化时才去切换 LED，避免无意义重复设置。
+            (void)led_service_set_mode(led_id, next_mode);
         }
 
-        // 按键事件也驱动蜂鸣器反馈，增强交互体验。检查按键目前的事件类型，短按/长按/双击分别对应不同的提示节奏。
+        // 业务结果同步到显示服务和蜂鸣器服务，让多个输出端保持一致。
+        (void)display_service_show_led_status(led_id, next_mode);
         (void)beep_service_play(app_event_get_beep_pattern_for_button_event(button_event));
+        app_event_update_display_for_beep();
         return;
     }
 
     ESP_LOGW(TAG, "unknown button_id=%ld", (long)button_id);
 }
 
+/**
+ * @brief 统一事件任务主体
+ *
+ * 这个任务阻塞等待事件队列，收到消息后再按来源和类型分发到具体处理函数。
+ */
 static void app_event_task(void *param)
 {
     (void)param;
@@ -218,7 +273,7 @@ static void app_event_task(void *param)
     while (1) {
         app_event_msg_t msg;
 
-        // 事件任务使用阻塞接收，没消息时不空转，适合作为统一事件分发入口。
+        // 阻塞接收可以避免没消息时空转耗 CPU。
         if (xQueueReceive(s_event_queue, &msg, portMAX_DELAY) != pdPASS) {
             continue;
         }
@@ -231,7 +286,8 @@ static void app_event_task(void *param)
                  (long)msg.param2,
                  (long long)msg.timestamp_ms,
                  (unsigned long)s_event_recv_count);
-        // 目前事件任务只处理按键事件，其他类型的事件先不处理；后续如果有更多事件来源和类型，再在这里统一分发。
+
+        // 当前版本主要处理按键事件，后面如果扩更多来源，就继续在这里统一分发。
         if (msg.source == APP_EVENT_SOURCE_BUTTON && msg.type == APP_EVENT_TYPE_BUTTON) {
             app_event_handle_button_message(&msg);
         } else {
@@ -242,6 +298,9 @@ static void app_event_task(void *param)
     }
 }
 
+/**
+ * @brief 创建统一事件任务
+ */
 esp_err_t app_event_task_start(QueueHandle_t event_queue)
 {
     if (event_queue == NULL) {
