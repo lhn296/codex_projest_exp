@@ -16,6 +16,7 @@ static const xl9555_pin_t s_board_key_pins[] = {
     [BTN_SYS] = (xl9555_pin_t)APP_XL9555_KEY0_PIN,
     [BTN_NET] = (xl9555_pin_t)APP_XL9555_KEY1_PIN,
     [BTN_ERR] = (xl9555_pin_t)APP_XL9555_KEY2_PIN,
+    [BTN_FUNC] = (xl9555_pin_t)APP_XL9555_KEY3_PIN,
 };
 
 static inline bool bsp_xl9555_valid_btn_id(button_id_t btn_id)
@@ -23,6 +24,12 @@ static inline bool bsp_xl9555_valid_btn_id(button_id_t btn_id)
     return (btn_id >= 0) && (btn_id < BTN_MAX);
 }
 
+static inline bool bsp_xl9555_beep_output_level(bool on)
+{
+    return on ? APP_XL9555_BEEP_ACTIVE_LEVEL : !APP_XL9555_BEEP_ACTIVE_LEVEL;
+}
+
+/* 读取 XL9555 输入口来清除中断锁存状态，避免重复触发同一事件。 */
 static esp_err_t bsp_xl9555_clear_int_latch(uint8_t *port0_value, uint8_t *port1_value)
 {
     uint8_t local_port0 = 0;
@@ -85,13 +92,6 @@ esp_err_t bsp_xl9555_keys_init(void)
         }
     }
 
-    // KEY3 虽然这版上层暂时没接入，但先配置成输入，方便后续扩展。
-    ret = xl9555_set_pin_mode((xl9555_pin_t)APP_XL9555_KEY3_PIN, XL9555_PIN_MODE_INPUT);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "key3 input config failed, ret=0x%x", ret);
-        return ret;
-    }
-
     // 某些 IO 扩展芯片在上电或方向切换后，INT 可能已经处于待触发状态。
     // 这里主动把两个输入口都读一遍，先把历史中断状态清干净。
     uint8_t port0_value = 0;
@@ -144,12 +144,15 @@ esp_err_t bsp_xl9555_beep_init(void)
         return ret;
     }
 
-    ret = xl9555_write_pin((xl9555_pin_t)APP_XL9555_BEEP_PIN, true);
+    ret = xl9555_write_pin((xl9555_pin_t)APP_XL9555_BEEP_PIN, bsp_xl9555_beep_output_level(false));
     if (ret != ESP_OK) {
         return ret;
     }
 
     s_xl9555_beep_inited = true;
+    ESP_LOGI(TAG, "beep pin ready, pin=%d active_level=%d",
+             APP_XL9555_BEEP_PIN,
+             APP_XL9555_BEEP_ACTIVE_LEVEL);
     return ESP_OK;
 }
 
@@ -162,7 +165,7 @@ esp_err_t bsp_xl9555_beep_set(bool on)
         }
     }
 
-    return xl9555_write_pin((xl9555_pin_t)APP_XL9555_BEEP_PIN, on);
+    return xl9555_write_pin((xl9555_pin_t)APP_XL9555_BEEP_PIN, bsp_xl9555_beep_output_level(on));
 }
 
 esp_err_t bsp_xl9555_int_init(gpio_isr_t isr_handler, void *arg)
@@ -206,7 +209,7 @@ esp_err_t bsp_xl9555_int_init(gpio_isr_t isr_handler, void *arg)
     }
 
     s_xl9555_int_inited = true;
-    ESP_LOGI(TAG, "XL9555 INT ready, gpio=%d intr=negedge pullup=internal level=%d",
+    ESP_LOGI(TAG, "XL9555 INT ready, gpio=%d intr=negedge pullup=external-or-board level=%d",
              APP_XL9555_INT_GPIO,
              gpio_get_level(APP_XL9555_INT_GPIO));
     return ESP_OK;

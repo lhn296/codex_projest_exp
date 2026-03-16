@@ -35,6 +35,7 @@ typedef enum {
     BTN_SYS = 0,
     BTN_NET,
     BTN_ERR,
+    BTN_FUNC,
     BTN_MAX
 } button_id_t;
 

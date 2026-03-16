@@ -20,6 +20,7 @@ static bsp_button_obj_t s_buttons[BTN_MAX] = {
     [BTN_SYS] = {false, false},
     [BTN_NET] = {false, false},
     [BTN_ERR] = {false, false},
+    [BTN_FUNC] = {false, false},
 };
 
 static bool s_button_hw_inited = false;

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.1 - 2026-03-16
+
+### Added
+- Added `BTN_FUNC` so all four board keys can participate in the unified button event chain.
+- Added `beep_service` for lightweight non-blocking buzzer patterns and test mode.
+- Added buzzer timing and active-level configuration entries in `app_config.h`.
+
+### Changed
+- Changed board `KEY3` from reserved input to functional key for buzzer enable/test control.
+- Changed `app_event_task` so business keys drive `LED + BEEP`, while the function key controls buzzer behavior.
+- Updated project metadata and logs to describe the `v1.3.1` board interaction stage.
+
 ## v1.3.0 - 2026-03-15
 
 ### Added

@@ -1,6 +1,7 @@
 #include "app_main_task.h"
 #include "app_event_task.h"
 #include "app_config.h"
+#include "beep_service.h"
 #include "led_service.h"
 #include "button_service.h"
 #include "freertos/FreeRTOS.h"
@@ -26,11 +27,13 @@ static void app_main_task_log_gpio_mapping(void)
     ESP_LOGI(TAG, "I2C / XL9555 mapping:");
     ESP_LOGI(TAG, "  I2C0 -> SDA GPIO%d SCL GPIO%d addr=0x%02X",
              APP_I2C_MASTER_SDA_GPIO, APP_I2C_MASTER_SCL_GPIO, APP_XL9555_I2C_ADDR);
-    ESP_LOGI(TAG, "  XL9555 INT -> GPIO%d pullup=internal intr=negedge",
+    ESP_LOGI(TAG, "  XL9555 INT -> GPIO%d pullup=board/external intr=negedge",
              APP_XL9555_INT_GPIO);
     ESP_LOGI(TAG, "  KEY0 -> IO1_7 KEY1 -> IO1_6 KEY2 -> IO1_5 KEY3 -> IO1_4 active_level=%d",
              APP_XL9555_KEY_ACTIVE_LEVEL);
-    ESP_LOGI(TAG, "  BEEP -> IO0_3 LCD_CTRL -> IO1_3 IO1_2");
+    ESP_LOGI(TAG, "  BEEP -> IO0_3 active_level=%d LCD_CTRL -> IO1_3 IO1_2",
+             APP_XL9555_BEEP_ACTIVE_LEVEL);
+    ESP_LOGI(TAG, "  KEY3 action -> short:beep_enable long:beep_off double:test_mode");
 }
 
 /* 默认模式集中在配置层，这里只负责把配置应用到运行时。 */
@@ -45,7 +48,6 @@ static void app_main_task(void *param)
 {
     (void)param;
 
-    // v1.2.0 的第一步是先把系统级事件通道准备好，
     // 后面的输入服务和事件任务都会围绕这条队列通信。
     s_button_event_queue = xQueueCreate(APP_EVENT_QUEUE_LENGTH, sizeof(app_event_msg_t));
     if (s_button_event_queue == NULL) {
@@ -60,6 +62,13 @@ static void app_main_task(void *param)
     esp_err_t ret = led_service_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "led_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ret = beep_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "beep_service_init failed, ret=0x%x", ret);
         vTaskDelete(NULL);
         return;
     }
@@ -88,12 +97,13 @@ static void app_main_task(void *param)
              APP_LED_SYS_DEFAULT_MODE,
              APP_LED_NET_DEFAULT_MODE,
              APP_LED_ERR_DEFAULT_MODE);
-    ESP_LOGI(TAG, "Event flow: XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service");
+    ESP_LOGI(TAG, "Event flow: XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service + beep_service");
 
     while (1) {
         // v1.2.0 开始，按键服务只负责识别事件并投递到队列；
         // 真正的业务动作改由 app_event_task 接收消息后处理。
         led_service_process();
+        beep_service_process();
         button_service_process();
         vTaskDelay(pdMS_TO_TICKS(APP_LED_SERVICE_TASK_PERIOD_MS));
     }

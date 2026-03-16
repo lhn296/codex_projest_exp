@@ -14,13 +14,13 @@ extern "C" {
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
 #define APP_PROJECT_DISPLAY_NAME          "ESP32 XL9555 Board Input Learning"
-#define APP_PROJECT_VERSION               "v1.3.0"
+#define APP_PROJECT_VERSION               "v1.3.1"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.3.0 XL9555 Driver Foundation"
+#define APP_PROJECT_STAGE_NAME            "v1.3.1 XL9555 Board Interaction"
 
 /* =========================
  * SYS LED 配置
@@ -64,6 +64,7 @@ extern "C" {
 #define APP_XL9555_I2C_ADDR               0x20
 #define APP_XL9555_INT_GPIO               GPIO_NUM_39
 #define APP_XL9555_KEY_ACTIVE_LEVEL       0
+#define APP_XL9555_BEEP_ACTIVE_LEVEL      0
 
 // XL9555 引脚编号按 0~15 映射：IO0_0~IO0_7 = 0~7, IO1_0~IO1_7 = 8~15
 #define APP_XL9555_BEEP_PIN               3    // IO0_3
@@ -83,6 +84,14 @@ extern "C" {
 #define APP_BUTTON_DOUBLE_CLICK_MS        300
 #define APP_BUTTON_INT_ONLY_DEBUG         0
 #define APP_BUTTON_IDLE_SCAN_PERIOD_MS    20
+
+/* =========================
+ * 蜂鸣器服务配置
+ * ========================= */
+#define APP_BEEP_SHORT_ON_MS              60
+#define APP_BEEP_SHORT_OFF_MS             80
+#define APP_BEEP_LONG_ON_MS               180
+#define APP_BEEP_TEST_INTERVAL_MS         1000
 
 
 /* =========================
