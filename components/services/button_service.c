@@ -14,15 +14,15 @@ static int64_t s_last_idle_scan_time_ms = 0;
 
 /* 按钮对象结构体 */
 typedef struct {
-    button_id_t btn_id;
-    bool raw_state; // 当前原始状态（未去抖动） 
-    bool stable_state; // 稳定状态（去抖动后）
-    bool long_reported; // 是否已报告过长按事件
-    bool irq_tracking; // 中断触发后进入跟踪期，直到这次按键完整结束
-    uint8_t click_count; // 连续点击计数
-    int64_t raw_change_time_ms;// 原始状态上次变化时间
-    int64_t press_start_time_ms;// 按下开始时间
-    int64_t last_release_time_ms;// 上次释放时间
+    button_id_t btn_id;            // 当前对象对应的按键编号。
+    bool raw_state;                // 当前原始电平状态，还没有经过消抖确认。
+    bool stable_state;             // 当前稳定状态，只有通过消抖后才会更新。
+    bool long_reported;            // 这次按下过程是否已经上报过长按事件。
+    bool irq_tracking;             // 是否处于中断唤醒后的跟踪期，用于减少无效轮询。
+    uint8_t click_count;           // 当前连续点击次数，用于单击/双击判定。
+    int64_t raw_change_time_ms;    // 原始状态最近一次变化的时间戳。
+    int64_t press_start_time_ms;   // 稳定按下开始时间，用于长按计时。
+    int64_t last_release_time_ms;  // 最近一次稳定释放时间，用于双击窗口判断。
 } button_obj_t;
 
 static button_obj_t s_btn_objs[BTN_MAX];//  按钮对象数组，保存每个按钮的状态信息

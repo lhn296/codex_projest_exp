@@ -18,11 +18,11 @@ static const char *TAG = "XL9555";
 // 这个上下文把“设备句柄 + 输出缓存 + 配置缓存”集中保存在一起，
 // 这样后续做单 pin 读写时就不需要每次都先把整口状态重新读一遍。
 typedef struct {
-    uint16_t dev_addr;
-    i2c_master_dev_handle_t dev_handle;
-    uint8_t output_cache[XL9555_PORT_MAX];
-    uint8_t config_cache[XL9555_PORT_MAX];
-    bool inited;
+    uint16_t dev_addr;                         // 当前 XL9555 的 I2C 从设备地址。
+    i2c_master_dev_handle_t dev_handle;        // ESP-IDF I2C 主机为该设备创建的句柄。
+    uint8_t output_cache[XL9555_PORT_MAX];     // Port0/Port1 输出寄存器软件缓存。
+    uint8_t config_cache[XL9555_PORT_MAX];     // Port0/Port1 方向配置寄存器软件缓存。
+    bool inited;                               // 驱动层是否已经完成初始化。
 } xl9555_ctx_t;
 
 static xl9555_ctx_t s_xl9555 = {

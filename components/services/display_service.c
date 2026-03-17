@@ -27,13 +27,16 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_PROJECT_INFO_Y      32
 #define DISPLAY_PROJECT_INFO_STEP   18
 #define DISPLAY_LED_PANEL_X         8
-#define DISPLAY_LED_PANEL_Y         84
+#define DISPLAY_LED_PANEL_Y         76
 #define DISPLAY_LED_PANEL_STEP      24
 #define DISPLAY_BEEP_PANEL_X        8
-#define DISPLAY_BEEP_PANEL_Y        168
+#define DISPLAY_BEEP_PANEL_Y        150
 #define DISPLAY_BEEP_PANEL_STEP     24
+#define DISPLAY_WIFI_PANEL_X        8
+#define DISPLAY_WIFI_PANEL_Y        194
+#define DISPLAY_WIFI_PANEL_STEP     10
 #define DISPLAY_EVENT_PANEL_X       8
-#define DISPLAY_EVENT_PANEL_Y       218
+#define DISPLAY_EVENT_PANEL_Y       228
 #define DISPLAY_EVENT_VALUE_X       56
 
 #define DISPLAY_HEADER_AREA_W       220
@@ -44,24 +47,31 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_LED_AREA_H          68
 #define DISPLAY_BEEP_AREA_W         220
 #define DISPLAY_BEEP_AREA_H         48
+#define DISPLAY_WIFI_AREA_W         304
+#define DISPLAY_WIFI_AREA_H         32
 #define DISPLAY_EVENT_AREA_W        280
-#define DISPLAY_EVENT_AREA_H        14
+#define DISPLAY_EVENT_AREA_H        10
 
 typedef struct {
-    bool inited;
-    bool full_refresh_pending;
-    bool header_dirty;
-    bool project_info_dirty;
-    bool led_panel_dirty;
-    bool beep_panel_dirty;
-    bool event_panel_dirty;
-    char version[24];
-    char stage[48];
-    button_id_t last_button_id;
-    button_event_t last_button_event;
-    led_mode_t led_modes[LED_ID_MAX];
-    bool beep_enabled;
-    bool beep_test_mode;
+    bool inited;                   // 显示服务是否已完成初始化。
+    bool full_refresh_pending;     // 是否需要整页刷新，通常用于首次绘制或全局布局变化。
+    bool header_dirty;             // 标题区是否需要重绘。
+    bool project_info_dirty;       // 项目信息区是否需要重绘。
+    bool led_panel_dirty;          // LED 状态区是否需要重绘。
+    bool beep_panel_dirty;         // 蜂鸣器状态区是否需要重绘。
+    bool wifi_panel_dirty;         // Wi-Fi 状态区是否需要重绘。
+    bool event_panel_dirty;        // 最近事件区是否需要重绘。
+    char version[24];              // 当前显示的版本字符串。
+    char stage[48];                // 当前显示的阶段说明字符串。
+    button_id_t last_button_id;    // 最近一次按键事件对应的按键编号。
+    button_event_t last_button_event; // 最近一次按键事件类型。
+    led_mode_t led_modes[LED_ID_MAX]; // 三路 LED 当前模式缓存。
+    bool beep_enabled;             // 当前蜂鸣提示开关状态。
+    bool beep_test_mode;           // 当前蜂鸣器测试模式状态。
+    wifi_state_t wifi_state;       // 当前 Wi-Fi 状态缓存。
+    char wifi_ip[20];              // 当前显示的 IPv4 字符串。
+    int wifi_rssi;                 // 当前显示的 Wi-Fi 信号强度，单位 dBm。
+    uint8_t wifi_channel;          // 当前显示的 AP 信道编号。
 } display_service_ctx_t;
 
 static display_service_ctx_t s_display = {
@@ -71,6 +81,7 @@ static display_service_ctx_t s_display = {
     .project_info_dirty = false,
     .led_panel_dirty = false,
     .beep_panel_dirty = false,
+    .wifi_panel_dirty = false,
     .event_panel_dirty = false,
     .version = {0},
     .stage = {0},
@@ -79,6 +90,10 @@ static display_service_ctx_t s_display = {
     .led_modes = {LED_MODE_OFF, LED_MODE_OFF, LED_MODE_OFF},
     .beep_enabled = true,
     .beep_test_mode = false,
+    .wifi_state = WIFI_STATE_IDLE,
+    .wifi_ip = "0.0.0.0",
+    .wifi_rssi = -127,
+    .wifi_channel = 0,
 };
 
 /**
@@ -93,6 +108,7 @@ static void display_service_mark_full_refresh(void)
     s_display.project_info_dirty = true;
     s_display.led_panel_dirty = true;
     s_display.beep_panel_dirty = true;
+    s_display.wifi_panel_dirty = true;
     s_display.event_panel_dirty = true;
 }
 
@@ -177,6 +193,28 @@ static const char *display_service_mode_to_string(led_mode_t mode)
             return "FAST";
         default:
             return "UNKNOWN";
+    }
+}
+
+/**
+ * @brief 把 Wi-Fi 状态转成便于显示的文本
+ */
+static const char *display_service_wifi_state_to_string(wifi_state_t state)
+{
+    switch (state) {
+        case WIFI_STATE_IDLE:
+            return "IDLE";
+        case WIFI_STATE_CONNECTING:
+            return "CONNECTING";
+        case WIFI_STATE_CONNECTED:
+            return "CONNECTED";
+        case WIFI_STATE_GOT_IP:
+            return "GOT_IP";
+        case WIFI_STATE_DISCONNECTED:
+            return "DISCONNECTED";
+        case WIFI_STATE_ERROR:
+        default:
+            return "ERROR";
     }
 }
 
@@ -338,6 +376,63 @@ static esp_err_t display_service_draw_beep_panel(void)
 }
 
 /**
+ * @brief 绘制 Wi-Fi 状态区
+ *
+ * 从 v1.5.0 开始，LCD 首页正式承担联网状态输出窗口的角色。
+ */
+static esp_err_t display_service_draw_wifi_panel(void)
+{
+    char signal_line[32];
+
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_WIFI_PANEL_X,
+        DISPLAY_WIFI_PANEL_Y,
+        DISPLAY_WIFI_AREA_W,
+        DISPLAY_WIFI_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_WIFI_PANEL_X,
+        DISPLAY_WIFI_PANEL_Y,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "WIFI",
+        display_service_wifi_state_to_string(s_display.wifi_state));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_WIFI_PANEL_X,
+        DISPLAY_WIFI_PANEL_Y + DISPLAY_WIFI_PANEL_STEP,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "IP",
+        s_display.wifi_ip);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (s_display.wifi_rssi <= -120) {
+        snprintf(signal_line, sizeof(signal_line), "--");
+    } else if (s_display.wifi_channel > 0) {
+        snprintf(signal_line, sizeof(signal_line), "%d dBm CH%u", s_display.wifi_rssi, s_display.wifi_channel);
+    } else {
+        snprintf(signal_line, sizeof(signal_line), "%d dBm", s_display.wifi_rssi);
+    }
+
+    return display_service_draw_line(
+        DISPLAY_WIFI_PANEL_X,
+        DISPLAY_WIFI_PANEL_Y + DISPLAY_WIFI_PANEL_STEP * 2,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "RSSI",
+        signal_line);
+}
+
+/**
  * @brief 绘制最近一次按键事件区
  *
  * 这块信息对调试非常有帮助，因为它能直接告诉我们“系统最后一次识别到的事件是什么”。
@@ -402,6 +497,10 @@ esp_err_t display_service_init(void)
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", APP_PROJECT_STAGE_NAME);
     s_display.beep_enabled = true;
     s_display.beep_test_mode = false;
+    s_display.wifi_state = WIFI_STATE_IDLE;
+    snprintf(s_display.wifi_ip, sizeof(s_display.wifi_ip), "%s", "0.0.0.0");
+    s_display.wifi_rssi = -127;
+    s_display.wifi_channel = 0;
     display_service_mark_full_refresh();
     s_display.inited = true;
 
@@ -497,6 +596,49 @@ esp_err_t display_service_show_beep_status(bool enabled, bool test_mode)
 }
 
 /**
+ * @brief 更新 Wi-Fi 状态显示缓存
+ */
+esp_err_t display_service_show_wifi_status(wifi_state_t state)
+{
+    if (!s_display.inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_display.wifi_state = state;
+    s_display.wifi_panel_dirty = true;
+    return ESP_OK;
+}
+
+/**
+ * @brief 更新 IP 地址显示缓存
+ */
+esp_err_t display_service_show_wifi_ip(const char *ip_string)
+{
+    if (!s_display.inited || ip_string == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    snprintf(s_display.wifi_ip, sizeof(s_display.wifi_ip), "%s", ip_string);
+    s_display.wifi_panel_dirty = true;
+    return ESP_OK;
+}
+
+/**
+ * @brief 更新 Wi-Fi 信号强度和信道显示缓存
+ */
+esp_err_t display_service_show_wifi_signal(int rssi, uint8_t channel)
+{
+    if (!s_display.inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_display.wifi_rssi = rssi;
+    s_display.wifi_channel = channel;
+    s_display.wifi_panel_dirty = true;
+    return ESP_OK;
+}
+
+/**
  * @brief 按当前缓存内容重绘首页
  *
  * 当前版本仍然保留“整页重绘”作为主策略，但已经把页面拆成多个区域函数，
@@ -534,6 +676,11 @@ esp_err_t display_service_refresh_home(void)
     if (ret != ESP_OK) {
         return ret;
     }
+    // 更新网络状态区
+    ret = display_service_draw_wifi_panel();
+    if (ret != ESP_OK) {
+        return ret;
+    }
     // 更新最近一次按键事件区
     ret = display_service_draw_last_event_panel();
     if (ret != ESP_OK) {
@@ -545,6 +692,7 @@ esp_err_t display_service_refresh_home(void)
     s_display.project_info_dirty = false;
     s_display.led_panel_dirty = false;
     s_display.beep_panel_dirty = false;
+    s_display.wifi_panel_dirty = false;
     s_display.event_panel_dirty = false;
     return ESP_OK;
 }
@@ -589,6 +737,12 @@ void display_service_process(void)
     if (s_display.beep_panel_dirty) {
         if (display_service_draw_beep_panel() == ESP_OK) {
             s_display.beep_panel_dirty = false;
+        }
+    }
+
+    if (s_display.wifi_panel_dirty) {
+        if (display_service_draw_wifi_panel() == ESP_OK) {
+            s_display.wifi_panel_dirty = false;
         }
     }
 

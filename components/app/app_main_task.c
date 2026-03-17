@@ -6,6 +6,7 @@
 #include "button_service.h"
 #include "display_service.h"
 #include "led_service.h"
+#include "wifi_service.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -50,6 +51,12 @@ static void app_main_task_log_gpio_mapping(void)
              APP_LCD_SPI_DC_GPIO,
              APP_LCD_SPI_SCLK_GPIO,
              APP_LCD_SPI_CS_GPIO);
+
+    ESP_LOGI(TAG, "Wi-Fi config:");
+    ESP_LOGI(TAG, "  SSID=\"%s\" max_retry=%d timeout_ms=%d",
+             APP_WIFI_STA_SSID[0] != '\0' ? APP_WIFI_STA_SSID : "<empty>",
+             APP_WIFI_MAX_RETRY,
+             APP_WIFI_CONNECT_TIMEOUT_MS);
 }
 
 /**
@@ -72,6 +79,8 @@ static void app_main_task_apply_default_outputs(void)
     (void)display_service_show_led_status(LED_ID_NET, APP_LED_NET_DEFAULT_MODE);
     (void)display_service_show_led_status(LED_ID_ERR, APP_LED_ERR_DEFAULT_MODE);
     (void)display_service_show_beep_status(beep_service_is_enabled(), beep_service_is_test_mode_enabled());
+    (void)display_service_show_wifi_status(wifi_service_get_state());
+    (void)display_service_show_wifi_ip(wifi_service_get_ip_string());
     (void)display_service_refresh_home();
 }
 
@@ -120,6 +129,14 @@ static void app_main_task(void *param)
         return;
     }
 
+    // Wi-Fi 服务这版开始成为正式系统模块，后面的 HTTP / OTA / AI 都会建立在它之上。
+    ret = wifi_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
     // 启动统一事件任务，后面按键状态机识别到的事件会都发到这里处理。
     ret = app_event_task_start(s_button_event_queue);
     if (ret != ESP_OK) {
@@ -139,12 +156,19 @@ static void app_main_task(void *param)
     app_main_task_apply_default_outputs();
     app_main_task_log_gpio_mapping();
 
+    // 所有显示和日志准备就绪后，再正式开始联网，这样状态变化能马上反馈到屏幕和串口。
+    ret = wifi_service_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_service_start failed, ret=0x%x", ret);
+    }
+
     ESP_LOGI(TAG, "%s started", APP_PROJECT_DISPLAY_NAME);
     ESP_LOGI(TAG, "Default LED modes: SYS=%d NET=%d ERR=%d",
              APP_LED_SYS_DEFAULT_MODE,
              APP_LED_NET_DEFAULT_MODE,
              APP_LED_ERR_DEFAULT_MODE);
     ESP_LOGI(TAG, "Event flow: XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service + beep_service + display_service");
+    ESP_LOGI(TAG, "Network flow: wifi_service -> display_service + log -> future http/ota/ai");
 
     while (1) {
         // 主循环里不直接写业务逻辑，而是只负责推进各个服务层的周期处理。
@@ -152,6 +176,7 @@ static void app_main_task(void *param)
         beep_service_process();
         button_service_process();
         display_service_process();
+        wifi_service_process();
         vTaskDelay(pdMS_TO_TICKS(APP_LED_SERVICE_TASK_PERIOD_MS));
     }
 }

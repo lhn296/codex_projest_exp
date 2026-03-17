@@ -8,16 +8,16 @@
 static const char *TAG = "BEEP_SERVICE";
 
 typedef struct {
-    bool inited; // 是否完成初始化
-    bool enabled; // 蜂鸣提示是否启用，适合业务键提示音的开关
-    bool test_mode; // 是否处于测试模式，测试模式下会持续发出提示音，适合功能键的测试状态
-    bool output_on;// 当前输出状态，true=正在响，false=正在间隔
-    bool sequence_active; // 是否有活动的提示时序，true=正在执行一个提示节奏，false=空闲状态
-    uint8_t remaining_pulses; // 当前提示节奏剩余的响次数，0 表示当前周期结束
-    uint32_t on_ms; // 当前提示节奏的响时长，单位毫秒
-    uint32_t off_ms;// 当前提示节奏的间隔时长，单位毫秒
-    int64_t last_change_time_ms;// 上次状态变化时间，单位毫秒，用于时序推进的时间判断
-    int64_t last_test_trigger_time_ms;// 上次测试模式触发时间，单位毫秒，用于测试模式下的节奏控制
+    bool inited;                   // 蜂鸣器服务是否已完成初始化。
+    bool enabled;                  // 普通蜂鸣提示是否启用，主要给业务键提示音使用。
+    bool test_mode;                // 是否进入测试模式，开启后会周期性自动发声。
+    bool output_on;                // 当前输出电平对应的逻辑状态，true 表示正在响。
+    bool sequence_active;          // 当前是否有活动的提示节奏正在执行。
+    uint8_t remaining_pulses;      // 当前提示节奏还剩多少次响声没有执行完。
+    uint32_t on_ms;                // 当前一次响声持续时间，单位毫秒。
+    uint32_t off_ms;               // 相邻两次响声之间的间隔时间，单位毫秒。
+    int64_t last_change_time_ms;   // 上一次响/停切换的时间戳，用于时序推进。
+    int64_t last_test_trigger_time_ms; // 测试模式上次触发提示音的时间戳。
 } beep_service_ctx_t;
 
 static beep_service_ctx_t s_beep = {

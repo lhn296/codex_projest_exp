@@ -8,11 +8,11 @@
 static const char *TAG = "BSP_LED";
 /* LED 对象 */
 typedef struct {
-    gpio_num_t gpio_num;// LED 对应的 GPIO 编号
-    uint8_t active_level;// 点亮 LED 的电平，0 表示低电平点亮，1 表示高电平点亮
-    bool default_on;// 默认状态
-    bool current_state;// 当前状态
-    bool inited;// 是否已初始化
+    gpio_num_t gpio_num;          // 当前 LED 实际连接的 GPIO 编号。
+    uint8_t active_level;         // 点亮 LED 所需的有效电平，0=低电平点亮，1=高电平点亮。
+    bool default_on;              // 初始化后默认是否点亮。
+    bool current_state;           // 当前 LED 逻辑状态，true=亮，false=灭。
+    bool inited;                  // 当前 LED 硬件是否已经初始化完成。
 } bsp_led_obj_t;
 
 /* LED 对象数组 */

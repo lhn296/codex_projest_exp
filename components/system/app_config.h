@@ -14,14 +14,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 SPI LCD Display Template"
-#define APP_PROJECT_VERSION               "v1.4.1"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 Wi-Fi Network Template"
+#define APP_PROJECT_VERSION               "v1.5.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.4.1 LCD Display Service Optimize"
+#define APP_PROJECT_STAGE_NAME            "v1.5.0 Wi-Fi Network Foundation"
 
 /* =========================
  * SYS LED 配置
@@ -99,6 +99,14 @@ extern "C" {
 #define APP_LCD_PWR_OFF_LEVEL             0
 #define APP_LCD_RST_ACTIVE_LEVEL          0
 #define APP_LCD_RST_INACTIVE_LEVEL        1
+
+/* =========================
+ * Wi-Fi 配置
+ * ========================= */
+#define APP_WIFI_STA_SSID                 "LV-HOME"
+#define APP_WIFI_STA_PASSWORD             "lv666666"
+#define APP_WIFI_MAX_RETRY                5
+#define APP_WIFI_CONNECT_TIMEOUT_MS       15000
 
 /* =========================
  * 按键服务配置

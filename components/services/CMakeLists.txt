@@ -3,6 +3,7 @@ idf_component_register(
          "beep_service.c"
          "button_service.c"
          "display_service.c"
+         "wifi_service.c"
     INCLUDE_DIRS "."
     REQUIRES
         bsp
@@ -10,4 +11,8 @@ idf_component_register(
         log
         system
         esp_timer
+        esp_wifi
+        esp_event
+        esp_netif
+        nvs_flash
 )

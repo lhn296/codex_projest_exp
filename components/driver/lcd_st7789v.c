@@ -11,8 +11,8 @@
 static const char *TAG = "LCD_ST7789V";
 
 typedef struct {
-    lcd_st7789v_config_t cfg;
-    bool inited;
+    lcd_st7789v_config_t cfg;  // 当前 LCD 驱动实际使用的配置副本。
+    bool inited;               // ST7789V 驱动是否已经完成初始化。
 } lcd_st7789v_ctx_t;
 
 static lcd_st7789v_ctx_t s_lcd = {0};

@@ -11,8 +11,8 @@ static volatile uint32_t s_xl9555_irq_count = 0;
  * @brief 按钮对象结构体
  */
 typedef struct {
-    bool inited;
-    volatile bool press_irq_pending; // XL9555 共用一根 INT，ISR 到来时给所有按键都置位
+    bool inited;                     // 当前按键对象是否已经完成初始化。
+    volatile bool press_irq_pending; // 是否存在待处理的按下中断标记，由 ISR 置位、服务层消费。
 } bsp_button_obj_t;
 
 /* 按钮对象数组 */

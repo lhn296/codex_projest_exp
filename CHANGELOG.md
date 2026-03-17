@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.5.0 - 2026-03-16
+
+### Added
+- Added `wifi_service` as a reusable Wi-Fi STA foundation layer with event-driven state updates.
+- Added Wi-Fi state and IP display support in `display_service`.
+- Added Wi-Fi configuration entries in `app_config.h` for SSID, password, retry count, and timeout.
+
+### Changed
+- Changed project positioning from display-only optimization to Wi-Fi network foundation learning.
+- Changed the LCD home page so it can now display Wi-Fi state and current IP address.
+- Updated startup logs and metadata to describe the `v1.5.0` Wi-Fi network foundation stage.
+
 ## v1.4.0 - 2026-03-16
 
 ### Added

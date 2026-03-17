@@ -8,9 +8,9 @@
 static const char *TAG = "LED_SERVICE";
 
 typedef struct {
-    led_mode_t mode;// 当前工作模式
-    int64_t last_toggle_time_ms;// 上次切换状态的时间戳，单位毫秒
-    bool in_use;    // 是否在使用中
+    led_mode_t mode;              // 当前 LED 工作模式。
+    int64_t last_toggle_time_ms;  // 上次翻转输出状态的时间戳，单位毫秒。
+    bool in_use;                  // 当前这个 LED 槽位是否已被初始化并投入使用。
 } led_service_obj_t;
 
 static bool s_led_service_inited = false;
