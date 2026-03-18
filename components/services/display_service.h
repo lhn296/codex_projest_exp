@@ -21,6 +21,7 @@ esp_err_t display_service_show_beep_status(bool enabled, bool test_mode);
 esp_err_t display_service_show_wifi_status(wifi_state_t state);
 esp_err_t display_service_show_wifi_ip(const char *ip_string);
 esp_err_t display_service_show_wifi_signal(int rssi, uint8_t channel);
+esp_err_t display_service_show_http_result(bool success, int status_code, const char *message);
 esp_err_t display_service_refresh_home(void);
 void display_service_process(void);
 

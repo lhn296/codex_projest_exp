@@ -4,6 +4,7 @@ idf_component_register(
          "button_service.c"
          "display_service.c"
          "wifi_service.c"
+         "http_service.c"
     INCLUDE_DIRS "."
     REQUIRES
         bsp
@@ -15,4 +16,6 @@ idf_component_register(
         esp_event
         esp_netif
         nvs_flash
+        esp_http_client
+        json
 )

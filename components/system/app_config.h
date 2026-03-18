@@ -14,14 +14,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 Wi-Fi Network Template"
-#define APP_PROJECT_VERSION               "v1.5.0"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 HTTP JSON Template"
+#define APP_PROJECT_VERSION               "v1.6.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.5.0 Wi-Fi Network Foundation"
+#define APP_PROJECT_STAGE_NAME            "v1.6.0 HTTP JSON Foundation"
 
 /* =========================
  * SYS LED 配置
@@ -107,6 +107,14 @@ extern "C" {
 #define APP_WIFI_STA_PASSWORD             "lv666666"
 #define APP_WIFI_MAX_RETRY                5
 #define APP_WIFI_CONNECT_TIMEOUT_MS       15000
+
+/* =========================
+ * HTTP 配置
+ * ========================= */
+#define APP_HTTP_TEST_URL                 "http://httpbin.org/json"
+#define APP_HTTP_TIMEOUT_MS               10000
+#define APP_HTTP_AUTO_START               1
+#define APP_HTTP_RETRY_INTERVAL_MS        5000
 
 /* =========================
  * 按键服务配置

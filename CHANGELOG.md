@@ -14,6 +14,18 @@ All notable changes to this project will be documented in this file.
 - Changed the LCD home page so it can now display Wi-Fi state and current IP address.
 - Updated startup logs and metadata to describe the `v1.5.0` Wi-Fi network foundation stage.
 
+## v1.6.0 - 2026-03-18
+
+### Added
+- Added `http_service` as a reusable HTTP GET and JSON parsing foundation layer.
+- Added LCD HTTP result display support for `HTTP / CODE / MSG`.
+- Added HTTP configuration entries in `app_config.h` for test URL, timeout, and auto-start behavior.
+
+### Changed
+- Changed project positioning from Wi-Fi-only connectivity learning to HTTP and JSON application-layer learning.
+- Changed the LCD home page so it can now display HTTP result status together with Wi-Fi information.
+- Updated startup logs and metadata to describe the `v1.6.0` HTTP JSON foundation stage.
+
 ## v1.4.0 - 2026-03-16
 
 ### Added

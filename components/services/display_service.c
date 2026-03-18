@@ -32,6 +32,9 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_BEEP_PANEL_X        8
 #define DISPLAY_BEEP_PANEL_Y        150
 #define DISPLAY_BEEP_PANEL_STEP     24
+#define DISPLAY_HTTP_PANEL_X        180
+#define DISPLAY_HTTP_PANEL_Y        150
+#define DISPLAY_HTTP_PANEL_STEP     10
 #define DISPLAY_WIFI_PANEL_X        8
 #define DISPLAY_WIFI_PANEL_Y        194
 #define DISPLAY_WIFI_PANEL_STEP     10
@@ -47,6 +50,8 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_LED_AREA_H          68
 #define DISPLAY_BEEP_AREA_W         220
 #define DISPLAY_BEEP_AREA_H         48
+#define DISPLAY_HTTP_AREA_W         136
+#define DISPLAY_HTTP_AREA_H         42
 #define DISPLAY_WIFI_AREA_W         304
 #define DISPLAY_WIFI_AREA_H         32
 #define DISPLAY_EVENT_AREA_W        280
@@ -59,6 +64,7 @@ typedef struct {
     bool project_info_dirty;       // 项目信息区是否需要重绘。
     bool led_panel_dirty;          // LED 状态区是否需要重绘。
     bool beep_panel_dirty;         // 蜂鸣器状态区是否需要重绘。
+    bool http_panel_dirty;         // HTTP 状态区是否需要重绘。
     bool wifi_panel_dirty;         // Wi-Fi 状态区是否需要重绘。
     bool event_panel_dirty;        // 最近事件区是否需要重绘。
     char version[24];              // 当前显示的版本字符串。
@@ -72,6 +78,9 @@ typedef struct {
     char wifi_ip[20];              // 当前显示的 IPv4 字符串。
     int wifi_rssi;                 // 当前显示的 Wi-Fi 信号强度，单位 dBm。
     uint8_t wifi_channel;          // 当前显示的 AP 信道编号。
+    bool http_success;             // 最近一次 HTTP 请求是否成功。
+    int http_status_code;          // 最近一次 HTTP 响应状态码。
+    char http_message[64];         // 最近一次 HTTP 结果摘要。
 } display_service_ctx_t;
 
 static display_service_ctx_t s_display = {
@@ -81,6 +90,7 @@ static display_service_ctx_t s_display = {
     .project_info_dirty = false,
     .led_panel_dirty = false,
     .beep_panel_dirty = false,
+    .http_panel_dirty = false,
     .wifi_panel_dirty = false,
     .event_panel_dirty = false,
     .version = {0},
@@ -94,6 +104,9 @@ static display_service_ctx_t s_display = {
     .wifi_ip = "0.0.0.0",
     .wifi_rssi = -127,
     .wifi_channel = 0,
+    .http_success = false,
+    .http_status_code = 0,
+    .http_message = "IDLE",
 };
 
 /**
@@ -108,6 +121,7 @@ static void display_service_mark_full_refresh(void)
     s_display.project_info_dirty = true;
     s_display.led_panel_dirty = true;
     s_display.beep_panel_dirty = true;
+    s_display.http_panel_dirty = true;
     s_display.wifi_panel_dirty = true;
     s_display.event_panel_dirty = true;
 }
@@ -433,6 +447,54 @@ static esp_err_t display_service_draw_wifi_panel(void)
 }
 
 /**
+ * @brief 绘制 HTTP 状态区
+ */
+static esp_err_t display_service_draw_http_panel(void)
+{
+    char code_text[16];
+
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_HTTP_PANEL_X,
+        DISPLAY_HTTP_PANEL_Y,
+        DISPLAY_HTTP_AREA_W,
+        DISPLAY_HTTP_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_HTTP_PANEL_X,
+        DISPLAY_HTTP_PANEL_Y,
+        s_display.http_success ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_RED,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "HTTP",
+        s_display.http_success ? "OK" : "FAIL");
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    snprintf(code_text, sizeof(code_text), "%d", s_display.http_status_code);
+    ret = display_service_draw_line(
+        DISPLAY_HTTP_PANEL_X,
+        DISPLAY_HTTP_PANEL_Y + DISPLAY_HTTP_PANEL_STEP,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "CODE",
+        code_text);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_HTTP_PANEL_X,
+        DISPLAY_HTTP_PANEL_Y + DISPLAY_HTTP_PANEL_STEP * 2,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "MSG",
+        s_display.http_message);
+}
+
+/**
  * @brief 绘制最近一次按键事件区
  *
  * 这块信息对调试非常有帮助，因为它能直接告诉我们“系统最后一次识别到的事件是什么”。
@@ -501,6 +563,9 @@ esp_err_t display_service_init(void)
     snprintf(s_display.wifi_ip, sizeof(s_display.wifi_ip), "%s", "0.0.0.0");
     s_display.wifi_rssi = -127;
     s_display.wifi_channel = 0;
+    s_display.http_success = false;
+    s_display.http_status_code = 0;
+    snprintf(s_display.http_message, sizeof(s_display.http_message), "%s", "IDLE");
     display_service_mark_full_refresh();
     s_display.inited = true;
 
@@ -639,6 +704,22 @@ esp_err_t display_service_show_wifi_signal(int rssi, uint8_t channel)
 }
 
 /**
+ * @brief 更新 HTTP 结果显示缓存
+ */
+esp_err_t display_service_show_http_result(bool success, int status_code, const char *message)
+{
+    if (!s_display.inited || message == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_display.http_success = success;
+    s_display.http_status_code = status_code;
+    snprintf(s_display.http_message, sizeof(s_display.http_message), "%s", message);
+    s_display.http_panel_dirty = true;
+    return ESP_OK;
+}
+
+/**
  * @brief 按当前缓存内容重绘首页
  *
  * 当前版本仍然保留“整页重绘”作为主策略，但已经把页面拆成多个区域函数，
@@ -681,6 +762,11 @@ esp_err_t display_service_refresh_home(void)
     if (ret != ESP_OK) {
         return ret;
     }
+    // 更新 HTTP 状态区
+    ret = display_service_draw_http_panel();
+    if (ret != ESP_OK) {
+        return ret;
+    }
     // 更新最近一次按键事件区
     ret = display_service_draw_last_event_panel();
     if (ret != ESP_OK) {
@@ -692,6 +778,7 @@ esp_err_t display_service_refresh_home(void)
     s_display.project_info_dirty = false;
     s_display.led_panel_dirty = false;
     s_display.beep_panel_dirty = false;
+    s_display.http_panel_dirty = false;
     s_display.wifi_panel_dirty = false;
     s_display.event_panel_dirty = false;
     return ESP_OK;
@@ -743,6 +830,12 @@ void display_service_process(void)
     if (s_display.wifi_panel_dirty) {
         if (display_service_draw_wifi_panel() == ESP_OK) {
             s_display.wifi_panel_dirty = false;
+        }
+    }
+
+    if (s_display.http_panel_dirty) {
+        if (display_service_draw_http_panel() == ESP_OK) {
+            s_display.http_panel_dirty = false;
         }
     }
 
