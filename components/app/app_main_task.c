@@ -7,6 +7,7 @@
 #include "display_service.h"
 #include "http_service.h"
 #include "led_service.h"
+#include "ota_service.h"
 #include "wifi_service.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -86,6 +87,7 @@ static void app_main_task_apply_default_outputs(void)
     (void)display_service_show_http_result(http_service_is_success(),
                                            http_service_get_status_code(),
                                            http_service_get_message());
+    (void)display_service_show_ota_status(ota_service_get_state(), ota_service_get_message());
     (void)display_service_refresh_home();
 }
 
@@ -149,6 +151,13 @@ static void app_main_task(void *param)
         return;
     }
 
+    ret = ota_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ota_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
     // 启动统一事件任务，后面按键状态机识别到的事件会都发到这里处理。
     ret = app_event_task_start(s_button_event_queue);
     if (ret != ESP_OK) {
@@ -182,6 +191,7 @@ static void app_main_task(void *param)
     ESP_LOGI(TAG, "Event flow: XL9555 -> button_service -> unified_event_queue -> app_event_task -> led_service + beep_service + display_service");
     ESP_LOGI(TAG, "Network flow: wifi_service -> display_service + log -> future http/ota/ai");
     ESP_LOGI(TAG, "HTTP flow: wifi_service -> http_service -> json parse -> display_service + log");
+    ESP_LOGI(TAG, "OTA flow: wifi_service -> http_service -> ota_service -> display_service + log");
 
     while (1) {
         // 主循环里不直接写业务逻辑，而是只负责推进各个服务层的周期处理。
@@ -191,6 +201,7 @@ static void app_main_task(void *param)
         display_service_process();
         wifi_service_process();
         http_service_process();
+        ota_service_process();
         vTaskDelay(pdMS_TO_TICKS(APP_LED_SERVICE_TASK_PERIOD_MS));
     }
 }

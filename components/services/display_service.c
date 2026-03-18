@@ -19,6 +19,7 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_TEXT_SCALE_TITLE  2
 #define DISPLAY_TEXT_SCALE_BODY   2
 #define DISPLAY_TEXT_SCALE_SMALL  1
+#define DISPLAY_TEXT_SCALE_STATUS 1
 
 // 首页布局常量集中放在这里，后面如果想微调页面，只需要改这一组参数。
 #define DISPLAY_HEADER_X            8
@@ -28,30 +29,35 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_PROJECT_INFO_STEP   18
 #define DISPLAY_LED_PANEL_X         8
 #define DISPLAY_LED_PANEL_Y         76
-#define DISPLAY_LED_PANEL_STEP      24
-#define DISPLAY_BEEP_PANEL_X        8
-#define DISPLAY_BEEP_PANEL_Y        150
-#define DISPLAY_BEEP_PANEL_STEP     24
-#define DISPLAY_HTTP_PANEL_X        180
-#define DISPLAY_HTTP_PANEL_Y        150
+#define DISPLAY_LED_PANEL_STEP      10
+#define DISPLAY_BEEP_PANEL_X        164
+#define DISPLAY_BEEP_PANEL_Y        76
+#define DISPLAY_BEEP_PANEL_STEP     10
+#define DISPLAY_HTTP_PANEL_X        8
+#define DISPLAY_HTTP_PANEL_Y        116
 #define DISPLAY_HTTP_PANEL_STEP     10
+#define DISPLAY_OTA_PANEL_X         164
+#define DISPLAY_OTA_PANEL_Y         116
+#define DISPLAY_OTA_PANEL_STEP      10
 #define DISPLAY_WIFI_PANEL_X        8
-#define DISPLAY_WIFI_PANEL_Y        194
+#define DISPLAY_WIFI_PANEL_Y        154
 #define DISPLAY_WIFI_PANEL_STEP     10
 #define DISPLAY_EVENT_PANEL_X       8
-#define DISPLAY_EVENT_PANEL_Y       228
+#define DISPLAY_EVENT_PANEL_Y       220
 #define DISPLAY_EVENT_VALUE_X       56
 
 #define DISPLAY_HEADER_AREA_W       220
 #define DISPLAY_HEADER_AREA_H       20
 #define DISPLAY_PROJECT_AREA_W      304
 #define DISPLAY_PROJECT_AREA_H      42
-#define DISPLAY_LED_AREA_W          220
-#define DISPLAY_LED_AREA_H          68
-#define DISPLAY_BEEP_AREA_W         220
-#define DISPLAY_BEEP_AREA_H         48
-#define DISPLAY_HTTP_AREA_W         136
-#define DISPLAY_HTTP_AREA_H         42
+#define DISPLAY_LED_AREA_W          148
+#define DISPLAY_LED_AREA_H          32
+#define DISPLAY_BEEP_AREA_W         148
+#define DISPLAY_BEEP_AREA_H         20
+#define DISPLAY_HTTP_AREA_W         148
+#define DISPLAY_HTTP_AREA_H         32
+#define DISPLAY_OTA_AREA_W          148
+#define DISPLAY_OTA_AREA_H          20
 #define DISPLAY_WIFI_AREA_W         304
 #define DISPLAY_WIFI_AREA_H         32
 #define DISPLAY_EVENT_AREA_W        280
@@ -65,6 +71,7 @@ typedef struct {
     bool led_panel_dirty;          // LED 状态区是否需要重绘。
     bool beep_panel_dirty;         // 蜂鸣器状态区是否需要重绘。
     bool http_panel_dirty;         // HTTP 状态区是否需要重绘。
+    bool ota_panel_dirty;          // OTA 状态区是否需要重绘。
     bool wifi_panel_dirty;         // Wi-Fi 状态区是否需要重绘。
     bool event_panel_dirty;        // 最近事件区是否需要重绘。
     char version[24];              // 当前显示的版本字符串。
@@ -81,6 +88,8 @@ typedef struct {
     bool http_success;             // 最近一次 HTTP 请求是否成功。
     int http_status_code;          // 最近一次 HTTP 响应状态码。
     char http_message[64];         // 最近一次 HTTP 结果摘要。
+    ota_state_t ota_state;         // 当前 OTA 状态缓存。
+    char ota_message[64];          // 当前 OTA 说明文本。
 } display_service_ctx_t;
 
 static display_service_ctx_t s_display = {
@@ -91,6 +100,7 @@ static display_service_ctx_t s_display = {
     .led_panel_dirty = false,
     .beep_panel_dirty = false,
     .http_panel_dirty = false,
+    .ota_panel_dirty = false,
     .wifi_panel_dirty = false,
     .event_panel_dirty = false,
     .version = {0},
@@ -107,6 +117,8 @@ static display_service_ctx_t s_display = {
     .http_success = false,
     .http_status_code = 0,
     .http_message = "IDLE",
+    .ota_state = OTA_STATE_IDLE,
+    .ota_message = "IDLE",
 };
 
 /**
@@ -122,6 +134,7 @@ static void display_service_mark_full_refresh(void)
     s_display.led_panel_dirty = true;
     s_display.beep_panel_dirty = true;
     s_display.http_panel_dirty = true;
+    s_display.ota_panel_dirty = true;
     s_display.wifi_panel_dirty = true;
     s_display.event_panel_dirty = true;
 }
@@ -233,6 +246,28 @@ static const char *display_service_wifi_state_to_string(wifi_state_t state)
 }
 
 /**
+ * @brief 把 OTA 状态转成便于显示的文本
+ */
+static const char *display_service_ota_state_to_string(ota_state_t state)
+{
+    switch (state) {
+        case OTA_STATE_IDLE:
+            return "IDLE";
+        case OTA_STATE_CHECK:
+            return "CHECK";
+        case OTA_STATE_READY:
+            return "READY";
+        case OTA_STATE_DOWNLOADING:
+            return "DOWN";
+        case OTA_STATE_SUCCESS:
+            return "SUCCESS";
+        case OTA_STATE_FAIL:
+        default:
+            return "FAIL";
+    }
+}
+
+/**
  * @brief 绘制一行“标签 : 值”格式的文本
  *
  * 这个小封装专门用来统一首页中各状态项的显示风格，
@@ -326,7 +361,7 @@ static esp_err_t display_service_draw_led_panel(void)
         DISPLAY_LED_PANEL_X,
         DISPLAY_LED_PANEL_Y,
         DISPLAY_COLOR_CYAN,
-        DISPLAY_TEXT_SCALE_BODY,
+        DISPLAY_TEXT_SCALE_STATUS,
         display_service_led_to_string(LED_ID_SYS),
         display_service_mode_to_string(s_display.led_modes[LED_ID_SYS]));
     if (ret != ESP_OK) {
@@ -337,7 +372,7 @@ static esp_err_t display_service_draw_led_panel(void)
         DISPLAY_LED_PANEL_X,
         DISPLAY_LED_PANEL_Y + DISPLAY_LED_PANEL_STEP,
         DISPLAY_COLOR_CYAN,
-        DISPLAY_TEXT_SCALE_BODY,
+        DISPLAY_TEXT_SCALE_STATUS,
         display_service_led_to_string(LED_ID_NET),
         display_service_mode_to_string(s_display.led_modes[LED_ID_NET]));
     if (ret != ESP_OK) {
@@ -348,7 +383,7 @@ static esp_err_t display_service_draw_led_panel(void)
         DISPLAY_LED_PANEL_X,
         DISPLAY_LED_PANEL_Y + DISPLAY_LED_PANEL_STEP * 2,
         DISPLAY_COLOR_CYAN,
-        DISPLAY_TEXT_SCALE_BODY,
+        DISPLAY_TEXT_SCALE_STATUS,
         display_service_led_to_string(LED_ID_ERR),
         display_service_mode_to_string(s_display.led_modes[LED_ID_ERR]));
 }
@@ -373,7 +408,7 @@ static esp_err_t display_service_draw_beep_panel(void)
         DISPLAY_BEEP_PANEL_X,
         DISPLAY_BEEP_PANEL_Y,
         DISPLAY_COLOR_GREEN,
-        DISPLAY_TEXT_SCALE_BODY,
+        DISPLAY_TEXT_SCALE_STATUS,
         "BEEP",
         s_display.beep_enabled ? "ON" : "OFF");
     if (ret != ESP_OK) {
@@ -384,7 +419,7 @@ static esp_err_t display_service_draw_beep_panel(void)
         DISPLAY_BEEP_PANEL_X,
         DISPLAY_BEEP_PANEL_Y + DISPLAY_BEEP_PANEL_STEP,
         DISPLAY_COLOR_GREEN,
-        DISPLAY_TEXT_SCALE_BODY,
+        DISPLAY_TEXT_SCALE_STATUS,
         "TEST",
         s_display.beep_test_mode ? "ON" : "OFF");
 }
@@ -495,6 +530,40 @@ static esp_err_t display_service_draw_http_panel(void)
 }
 
 /**
+ * @brief 绘制 OTA 状态区
+ */
+static esp_err_t display_service_draw_ota_panel(void)
+{
+    esp_err_t ret = display_service_clear_region(
+        DISPLAY_OTA_PANEL_X,
+        DISPLAY_OTA_PANEL_Y,
+        DISPLAY_OTA_AREA_W,
+        DISPLAY_OTA_AREA_H);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = display_service_draw_line(
+        DISPLAY_OTA_PANEL_X,
+        DISPLAY_OTA_PANEL_Y,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "OTA",
+        display_service_ota_state_to_string(s_display.ota_state));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_OTA_PANEL_X,
+        DISPLAY_OTA_PANEL_Y + DISPLAY_OTA_PANEL_STEP,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "MSG",
+        s_display.ota_message);
+}
+
+/**
  * @brief 绘制最近一次按键事件区
  *
  * 这块信息对调试非常有帮助，因为它能直接告诉我们“系统最后一次识别到的事件是什么”。
@@ -566,6 +635,8 @@ esp_err_t display_service_init(void)
     s_display.http_success = false;
     s_display.http_status_code = 0;
     snprintf(s_display.http_message, sizeof(s_display.http_message), "%s", "IDLE");
+    s_display.ota_state = OTA_STATE_IDLE;
+    snprintf(s_display.ota_message, sizeof(s_display.ota_message), "%s", "IDLE");
     display_service_mark_full_refresh();
     s_display.inited = true;
 
@@ -720,6 +791,21 @@ esp_err_t display_service_show_http_result(bool success, int status_code, const 
 }
 
 /**
+ * @brief 更新 OTA 结果显示缓存
+ */
+esp_err_t display_service_show_ota_status(ota_state_t state, const char *message)
+{
+    if (!s_display.inited || message == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_display.ota_state = state;
+    snprintf(s_display.ota_message, sizeof(s_display.ota_message), "%s", message);
+    s_display.ota_panel_dirty = true;
+    return ESP_OK;
+}
+
+/**
  * @brief 按当前缓存内容重绘首页
  *
  * 当前版本仍然保留“整页重绘”作为主策略，但已经把页面拆成多个区域函数，
@@ -767,6 +853,11 @@ esp_err_t display_service_refresh_home(void)
     if (ret != ESP_OK) {
         return ret;
     }
+    // 更新 OTA 状态区
+    ret = display_service_draw_ota_panel();
+    if (ret != ESP_OK) {
+        return ret;
+    }
     // 更新最近一次按键事件区
     ret = display_service_draw_last_event_panel();
     if (ret != ESP_OK) {
@@ -779,6 +870,7 @@ esp_err_t display_service_refresh_home(void)
     s_display.led_panel_dirty = false;
     s_display.beep_panel_dirty = false;
     s_display.http_panel_dirty = false;
+    s_display.ota_panel_dirty = false;
     s_display.wifi_panel_dirty = false;
     s_display.event_panel_dirty = false;
     return ESP_OK;
@@ -836,6 +928,12 @@ void display_service_process(void)
     if (s_display.http_panel_dirty) {
         if (display_service_draw_http_panel() == ESP_OK) {
             s_display.http_panel_dirty = false;
+        }
+    }
+
+    if (s_display.ota_panel_dirty) {
+        if (display_service_draw_ota_panel() == ESP_OK) {
+            s_display.ota_panel_dirty = false;
         }
     }
 

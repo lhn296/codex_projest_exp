@@ -62,6 +62,18 @@ typedef enum {
 } wifi_state_t;
 
 /**
+ * @brief OTA 升级状态定义
+ */
+typedef enum {
+    OTA_STATE_IDLE = 0,       /*!< 空闲，尚未开始检查升级 */
+    OTA_STATE_CHECK,          /*!< 正在检查版本信息 */
+    OTA_STATE_READY,          /*!< 已发现新版本，具备升级条件 */
+    OTA_STATE_DOWNLOADING,    /*!< 正在下载或执行升级 */
+    OTA_STATE_SUCCESS,        /*!< 升级成功 */
+    OTA_STATE_FAIL,           /*!< 升级失败 */
+} ota_state_t;
+
+/**
  * @brief 统一事件来源
  */
 typedef enum {

@@ -5,6 +5,7 @@ idf_component_register(
          "display_service.c"
          "wifi_service.c"
          "http_service.c"
+         "ota_service.c"
     INCLUDE_DIRS "."
     REQUIRES
         bsp
