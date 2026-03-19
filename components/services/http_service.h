@@ -31,6 +31,9 @@ int http_service_get_status_code(void);
 // 获取最近一次 HTTP 结果摘要文本。
 const char *http_service_get_message(void);
 
+// 获取最近一次 HTTP 响应正文缓存。
+const char *http_service_get_response_body(void);
+
 #ifdef __cplusplus
 }
 #endif

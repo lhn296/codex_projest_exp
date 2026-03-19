@@ -483,6 +483,11 @@ static esp_err_t display_service_draw_wifi_panel(void)
 
 /**
  * @brief 绘制 HTTP 状态区
+ *
+ * HTTP 区主要显示三类信息：
+ * 1. 请求是否成功
+ * 2. HTTP 状态码
+ * 3. 从 JSON 提取出来的摘要消息
  */
 static esp_err_t display_service_draw_http_panel(void)
 {
@@ -531,6 +536,12 @@ static esp_err_t display_service_draw_http_panel(void)
 
 /**
  * @brief 绘制 OTA 状态区
+ *
+ * 这里不展示完整升级流程细节，只展示最核心的：
+ * - 当前 OTA 状态
+ * - 当前说明消息
+ *
+ * 这样页面既能保留信息密度，又不至于太拥挤。
  */
 static esp_err_t display_service_draw_ota_panel(void)
 {
@@ -776,6 +787,8 @@ esp_err_t display_service_show_wifi_signal(int rssi, uint8_t channel)
 
 /**
  * @brief 更新 HTTP 结果显示缓存
+ *
+ * 这里只更新缓存并打脏标记，真正绘制仍然在 display_service_process() 里统一完成。
  */
 esp_err_t display_service_show_http_result(bool success, int status_code, const char *message)
 {
@@ -792,6 +805,8 @@ esp_err_t display_service_show_http_result(bool success, int status_code, const 
 
 /**
  * @brief 更新 OTA 结果显示缓存
+ *
+ * OTA 服务变化后只需要调用这一层，不需要自己关心 LCD 区域坐标和刷新顺序。
  */
 esp_err_t display_service_show_ota_status(ota_state_t state, const char *message)
 {

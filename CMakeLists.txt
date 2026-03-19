@@ -6,7 +6,7 @@ if(NOT DEFINED ENV{IDF_PATH})
     message(FATAL_ERROR "IDF_PATH is not set. Configure ESP-IDF and reopen the project from an ESP-IDF environment.")
 endif()
 
-set(PROJECT_VER "v1.6.0")
+set(PROJECT_VER "v1.8.0")
 set(COMPONENTS main app bsp driver services system)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

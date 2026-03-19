@@ -9,6 +9,18 @@ All notable changes to this project will be documented in this file.
 - Added Wi-Fi state and IP display support in `display_service`.
 - Added Wi-Fi configuration entries in `app_config.h` for SSID, password, retry count, and timeout.
 
+## v1.8.0 - 2026-03-18
+
+### Added
+- Added real cloud-version-check preparation in `ota_service`, including parsing of `version / url / message` from a remote JSON payload.
+- Added `http_service_get_response_body()` so upper-layer modules such as `ota_service` can consume the full HTTP response body.
+- Added HTTPS certificate bundle attachment for HTTP requests, preparing the project for services such as `Cloudflare Workers`.
+
+### Changed
+- Changed the project positioning from local OTA skeleton learning to cloud OTA version-check learning.
+- Changed OTA metadata flow from local compile-time mock values to HTTP-driven cloud payload parsing.
+- Updated project metadata and docs to describe the `v1.8.0` cloud version check stage.
+
 ### Changed
 - Changed project positioning from display-only optimization to Wi-Fi network foundation learning.
 - Changed the LCD home page so it can now display Wi-Fi state and current IP address.

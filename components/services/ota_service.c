@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "cJSON.h"
 #include "display_service.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -22,6 +23,7 @@ typedef struct {
     char target_version[24];          // 最近一次检测到的目标版本号。
     char firmware_url[160];           // 最近一次检测到的固件下载地址。
     char message[64];                 // 当前状态说明文本，供 LCD 和日志复用。
+    int last_http_status_code;        // 最近一次版本接口访问的 HTTP 状态码。
 } ota_service_ctx_t;
 
 static ota_service_ctx_t s_ota = {
@@ -33,6 +35,7 @@ static ota_service_ctx_t s_ota = {
     .target_version = {0},
     .firmware_url = {0},
     .message = "IDLE",
+    .last_http_status_code = 0,
 };
 
 /**
@@ -41,7 +44,51 @@ static ota_service_ctx_t s_ota = {
 static const char *ota_service_state_to_string(ota_state_t state);
 
 /**
+ * @brief 从云端版本 JSON 中解析 OTA 需要的字段
+ *
+ * 当前最关心三个字段：
+ * 1. version：云端最新版本号
+ * 2. url：固件下载地址
+ * 3. message：给日志和 LCD 用的说明文字
+ */
+static esp_err_t ota_service_parse_cloud_payload(const char *json_text)
+{
+    if (json_text == NULL || json_text[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_Parse(json_text);
+    if (root == NULL) {
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL) {
+            ESP_LOGW(TAG, "ota json parse error near: %.48s", error_ptr);
+        }
+        return ESP_FAIL;
+    }
+
+    const cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "version");
+    const cJSON *url = cJSON_GetObjectItemCaseSensitive(root, "url");
+    const cJSON *message = cJSON_GetObjectItemCaseSensitive(root, "message");
+
+    if (!cJSON_IsString(version) || version->valuestring == NULL) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    snprintf(s_ota.target_version, sizeof(s_ota.target_version), "%s", version->valuestring);
+    snprintf(s_ota.firmware_url, sizeof(s_ota.firmware_url), "%s",
+             (cJSON_IsString(url) && url->valuestring != NULL) ? url->valuestring : "");
+    snprintf(s_ota.message, sizeof(s_ota.message), "%s",
+             (cJSON_IsString(message) && message->valuestring != NULL) ? message->valuestring : version->valuestring);
+
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+/**
  * @brief 把 OTA 状态同步到显示服务
+ *
+ * OTA 服务不直接负责页面绘制，它只维护升级状态并把结果同步给显示层。
  */
 static void ota_service_sync_display(void)
 {
@@ -50,6 +97,11 @@ static void ota_service_sync_display(void)
 
 /**
  * @brief 统一更新 OTA 状态
+ *
+ * 这里统一负责：
+ * 1. 更新内部 OTA 状态
+ * 2. 更新说明文本
+ * 3. 同步日志和 LCD
  */
 static void ota_service_set_state(ota_state_t state, const char *message)
 {
@@ -102,39 +154,67 @@ static bool ota_service_compare_version(const char *current_version, const char 
  *
  * 当前版本先做“可复用骨架”：
  * 1. 联网成功后进入检查状态
- * 2. 使用配置中的目标版本和固件地址模拟版本检查结果
- * 3. 如果发现新版本，则进入 READY
- * 4. 自动升级入口先保留，后续接真实服务器时再补下载执行
+ * 2. 通过 HTTP 访问真实云端版本接口
+ * 3. 解析 version / url / message
+ * 4. 如果发现新版本，则进入 READY
+ * 5. 自动升级入口先保留，后续接真实 OTA 下载链时再补
  */
 static void ota_service_check_once(void)
 {
+    // 先记录本次检查时间，并把状态切到 CHECK，便于日志和屏幕同步显示。
     s_ota.last_check_time_ms = esp_timer_get_time() / 1000;
     ota_service_set_state(OTA_STATE_CHECK, "CHECK");
 
-    snprintf(s_ota.target_version, sizeof(s_ota.target_version), "%s", APP_OTA_SERVER_VERSION);
-    snprintf(s_ota.firmware_url, sizeof(s_ota.firmware_url), "%s", APP_OTA_FIRMWARE_URL);
+    // 先访问真实云端版本接口，后面再从响应正文中解析 OTA 元数据。
+    esp_err_t ret = http_service_request_get(APP_OTA_VERSION_URL);
+    s_ota.last_http_status_code = http_service_get_status_code();
+    if (ret != ESP_OK || !http_service_is_success()) {
+        ota_service_set_state(OTA_STATE_FAIL, "HTTP_FAIL");
+        ESP_LOGE(TAG, "ota version request failed, ret=0x%x status=%d",
+                 ret,
+                 s_ota.last_http_status_code);
+        return;
+    }
 
+    // 云端版本接口返回的正文继续交给 OTA 层解析，这样 OTA 能直接消费 version/url/message。
+    ret = ota_service_parse_cloud_payload(http_service_get_response_body());
+    if (ret != ESP_OK) {
+        ota_service_set_state(OTA_STATE_FAIL, "JSON_FAIL");
+        ESP_LOGE(TAG, "ota cloud payload parse failed, ret=0x%x", ret);
+        return;
+    }
+
+    // 当前阶段先采用最简单规则：目标版本和当前版本不同，就认为存在更新。
     s_ota.has_update = ota_service_compare_version(APP_PROJECT_VERSION, s_ota.target_version);
-    if (!s_ota.has_update) { // 如果没有检测到新版本，直接更新状态并返回，不进入 READY 状态了。
+    if (!s_ota.has_update) {
+        // 没有新版本时直接回到 IDLE / NO_UPDATE，不进入 READY。
         ota_service_set_state(OTA_STATE_IDLE, "NO_UPDATE");
         ESP_LOGI(TAG, "ota no update, current=%s target=%s", APP_PROJECT_VERSION, s_ota.target_version);
         return;
     }
 
-    ota_service_set_state(OTA_STATE_READY, s_ota.target_version);// 如果检测到新版本，进入 READY 状态，显示目标版本号。
-    ESP_LOGI(TAG, "ota update ready, current=%s target=%s url=%s",
+    // 检测到新版本后进入 READY，优先显示云端 message，没有 message 时再回退版本号。
+    ota_service_set_state(OTA_STATE_READY, s_ota.message[0] != '\0' ? s_ota.message : s_ota.target_version);
+    ESP_LOGI(TAG, "ota update ready, current=%s target=%s url=%s message=%s",
              APP_PROJECT_VERSION,
              s_ota.target_version,
-             s_ota.firmware_url);
+             s_ota.firmware_url,
+             s_ota.message);
 
     if (APP_OTA_AUTO_UPGRADE) {
-        // 当前版本先保留自动升级入口，后面接真实 OTA 下载链时继续扩展。
+        // 当前版本先保留自动升级入口，后面接真实 OTA 下载链时再扩展：
+        // 下载固件 -> 写分区 -> 设置启动分区 -> 重启。
         ota_service_set_state(OTA_STATE_FAIL, "AUTO_DISABLED");
     }
 }
 
 /**
  * @brief 初始化 OTA 服务
+ *
+ * 当前先做“版本检查骨架版”：
+ * - 初始化状态缓存
+ * - 同步默认显示状态
+ * - 为后续真实 OTA 下载链保留统一入口
  */
 esp_err_t ota_service_init(void)
 {
@@ -142,23 +222,28 @@ esp_err_t ota_service_init(void)
         return ESP_OK;
     }
 
+    // 检查前默认把目标版本设成当前版本，避免未初始化时显示脏值。
     snprintf(s_ota.target_version, sizeof(s_ota.target_version), "%s", APP_PROJECT_VERSION);
     snprintf(s_ota.firmware_url, sizeof(s_ota.firmware_url), "%s", "");
     ota_service_set_state(OTA_STATE_IDLE, "IDLE");
     s_ota.inited = true;
-    ESP_LOGI(TAG, "ota service ready, auto_check=%d auto_upgrade=%d target=%s",
+    ESP_LOGI(TAG, "ota service ready, auto_check=%d auto_upgrade=%d version_url=%s",
              APP_OTA_AUTO_CHECK,
              APP_OTA_AUTO_UPGRADE,
-             APP_OTA_SERVER_VERSION);
+             APP_OTA_VERSION_URL);
     return ESP_OK;
 }
 
 /**
  * @brief OTA 周期处理
+ *
+ * 当前版本先做一次性自动检查：
+ * 1. 等 Wi-Fi 拿到 IP
+ * 2. 等 HTTP 服务准备好
+ * 3. 执行一次版本检查
  */
 void ota_service_process(void)
 {
-    
     if (!s_ota.inited || !APP_OTA_AUTO_CHECK) {
         return;
     }
@@ -167,8 +252,8 @@ void ota_service_process(void)
         return;
     }
 
-    // OTA 检查至少要求网络已经可用，后面再接真实服务器时还会依赖 HTTP 版本接口。
-    if (wifi_service_get_state() != WIFI_STATE_GOT_IP) {// 如果还没有联网成功，就先不检查了，等下次周期再检查。
+    // OTA 检查至少要求网络已经可用。
+    if (wifi_service_get_state() != WIFI_STATE_GOT_IP) {
         return;
     }
 
@@ -177,25 +262,38 @@ void ota_service_process(void)
         return;
     }
 
-    ota_service_check_once();// 执行一次版本检查，后续再接真实服务器时继续扩展检查内容和流程。
+    // 到这里说明联网和 HTTP 基础都准备好了，可以执行一次 OTA 检查。
+    ota_service_check_once();
     s_ota.checked_once = true;
 }
 
+/**
+ * @brief 判断 OTA 服务是否已初始化
+ */
 bool ota_service_is_ready(void)
 {
     return s_ota.inited;
 }
 
+/**
+ * @brief 获取当前 OTA 状态
+ */
 ota_state_t ota_service_get_state(void)
 {
     return s_ota.state;
 }
 
+/**
+ * @brief 获取当前 OTA 状态说明文本
+ */
 const char *ota_service_get_message(void)
 {
     return s_ota.message;
 }
 
+/**
+ * @brief 判断当前是否检测到新版本
+ */
 bool ota_service_has_update(void)
 {
     return s_ota.has_update;

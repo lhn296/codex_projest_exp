@@ -14,14 +14,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 OTA Template"
-#define APP_PROJECT_VERSION               "v1.7.0"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 Cloud OTA Template"
+#define APP_PROJECT_VERSION               "v1.8.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.7.0 OTA Foundation"
+#define APP_PROJECT_STAGE_NAME            "v1.8.0 Cloud Version Check"
 
 /* =========================
  * SYS LED 配置
@@ -111,8 +111,8 @@ extern "C" {
 /* =========================
  * HTTP 配置
  * ========================= */
-#define APP_HTTP_TEST_URL                 "http://httpbin.org/json"
-#define APP_HTTP_TIMEOUT_MS               10000
+#define APP_HTTP_TEST_URL                 "https://httpbin.org/json"
+#define APP_HTTP_TIMEOUT_MS               20000
 #define APP_HTTP_AUTO_START               1
 #define APP_HTTP_RETRY_INTERVAL_MS        5000
 
@@ -122,8 +122,7 @@ extern "C" {
 #define APP_OTA_AUTO_CHECK                1
 #define APP_OTA_AUTO_UPGRADE              0
 #define APP_OTA_CHECK_INTERVAL_MS         10000
-#define APP_OTA_SERVER_VERSION            "v1.7.1"
-#define APP_OTA_FIRMWARE_URL              "http://example.com/codex_project_tep_v1.7.1.bin"
+#define APP_OTA_VERSION_URL               "http://1406834977-7btxur47w5.ap-guangzhou.tencentscf.com/version"
 
 /* =========================
  * 按键服务配置

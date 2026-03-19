@@ -6,6 +6,7 @@
 #include "app_config.h"
 #include "cJSON.h"
 #include "display_service.h"
+#include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -37,6 +38,9 @@ static http_service_ctx_t s_http = {
 
 /**
  * @brief 把 HTTP 结果同步到显示服务
+ *
+ * HTTP 服务不直接关心 LCD 怎么画，它只负责把“最近一次请求结果”
+ * 同步给显示缓存，真正的局部刷新仍然由 display_service 统一调度。
  */
 static void http_service_sync_display(void)
 {
@@ -45,6 +49,11 @@ static void http_service_sync_display(void)
 
 /**
  * @brief 统一更新 HTTP 结果缓存
+ *
+ * 这里统一收口最近一次请求的核心结果：
+ * 1. 是否成功
+ * 2. 状态码
+ * 3. 给用户看的摘要文本
  */
 static void http_service_set_result(bool success, int status_code, const char *message)
 {
@@ -90,12 +99,14 @@ static const char *http_service_status_to_string(int status_code)
  * @brief 从 JSON 文本中提取最基础的展示信息
  *
  * 当前先做轻量解析：
- * 1. 优先取 slideshow.title
- * 2. 如果没有，再取顶层 title
- * 3. 都没有就只保留 OK
+ * 1. 优先取顶层 message
+ * 2. 如果没有，再取 slideshow.title
+ * 3. 如果还没有，再取顶层 title
+ * 4. 都没有就只保留 OK
  */
 static void http_service_parse_json_summary(const char *json_text)
 {
+    // 先尝试把正文解析成 JSON 树，后面再从树里抽取关键摘要字段。
     cJSON *root = cJSON_Parse(json_text);
     if (root == NULL) {
         const char *error_ptr = cJSON_GetErrorPtr();
@@ -107,6 +118,9 @@ static void http_service_parse_json_summary(const char *json_text)
         return;
     }
 
+    // 先看接口有没有直接返回 message，这对云端版本检查类接口最常见。
+    const cJSON *message = cJSON_GetObjectItemCaseSensitive(root, "message");
+    // 当前测试接口如果没有 message，再尝试从 slideshow.title 里取标题。
     const cJSON *title = cJSON_GetObjectItemCaseSensitive(root, "title");
     const cJSON *slideshow = cJSON_GetObjectItemCaseSensitive(root, "slideshow");
     const cJSON *slide_title = NULL;
@@ -115,7 +129,9 @@ static void http_service_parse_json_summary(const char *json_text)
         slide_title = cJSON_GetObjectItemCaseSensitive(slideshow, "title");
     }
 
-    if (cJSON_IsString(slide_title) && slide_title->valuestring != NULL) {
+    if (cJSON_IsString(message) && message->valuestring != NULL) {
+        http_service_set_result(true, s_http.status_code, message->valuestring);
+    } else if (cJSON_IsString(slide_title) && slide_title->valuestring != NULL) {
         http_service_set_result(true, s_http.status_code, slide_title->valuestring);
     } else if (cJSON_IsString(title) && title->valuestring != NULL) {
         http_service_set_result(true, s_http.status_code, title->valuestring);
@@ -128,6 +144,12 @@ static void http_service_parse_json_summary(const char *json_text)
 
 /**
  * @brief 初始化 HTTP 服务
+ *
+ * 当前模板先把 HTTP 做成最基础的 GET 测试服务，后面再继续扩展：
+ * - POST
+ * - 自定义 header
+ * - HTTPS
+ * - 更完整的 JSON 解析
  */
 esp_err_t http_service_init(void)
 {
@@ -143,6 +165,13 @@ esp_err_t http_service_init(void)
 
 /**
  * @brief 发起一次 HTTP GET 请求
+ *
+ * 当前函数分成这几步：
+ * 1. 检查网络和请求状态
+ * 2. 初始化 HTTP 客户端
+ * 3. 显式 open + fetch_headers + read 正文
+ * 4. 解析 JSON 摘要
+ * 5. 更新显示和日志
  */
 esp_err_t http_service_request_get(const char *url)
 {
@@ -163,26 +192,34 @@ esp_err_t http_service_request_get(const char *url)
     }
 
     s_http.request_in_progress = true;
-    s_http.last_request_time_ms = esp_timer_get_time() / 1000;// 获取当前时间戳，单位 ms
-    http_service_set_result(false, 0, "REQUESTING");// 更新状态为请求中，供 LCD 显示。
+    s_http.last_request_time_ms = esp_timer_get_time() / 1000; // 记录本次请求开始的时间戳，便于后续做超时分析或统计。
+    http_service_set_result(false, 0, "REQUESTING"); // 请求发起后先把 LCD 状态切到 REQUESTING。
 
     // 配置 HTTP 客户端，当前只支持最基本的 URL 和超时设置，后续可以根据需要继续扩展。
     esp_http_client_config_t config = {
         .url = url,
         .timeout_ms = APP_HTTP_TIMEOUT_MS,
         .method = HTTP_METHOD_GET,
+        // 某些云端地址会同时返回 IPv4 / IPv6，这里先强制走 IPv4，
+        // 方便在当前 ESP32 网络环境下优先排除地址族导致的连接异常。
+        .addr_type = HTTP_ADDR_TYPE_INET,
+        // 云端版本接口后面大概率会走 HTTPS，这里直接挂系统证书包，
+        // 这样像 Cloudflare Workers 这类 HTTPS 接口就能直接验证证书。
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);// 初始化 HTTP 客户端
+    // 先根据配置创建 HTTP 客户端对象，后面所有 open/read/close 都围绕这个句柄进行。
+    esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
         s_http.request_in_progress = false;
         http_service_set_result(false, 0, "CLIENT_INIT_FAIL");
         return ESP_FAIL;
     }
 
+
     // 这里改成显式 open + read 的方式，
     // 目的是确保响应正文由我们自己主动读取，而不是只拿到状态码。
-    esp_err_t ret = esp_http_client_open(client, 0);// 打开 HTTP 连接，GET 请求不需要发送正文长度。
+    esp_err_t ret = esp_http_client_open(client, 0); // GET 请求没有请求体，所以发送长度填 0。
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_http_client_open failed, ret=0x%x", ret);
         esp_http_client_cleanup(client);
@@ -191,37 +228,42 @@ esp_err_t http_service_request_get(const char *url)
         return ret;
     }
 
-    // 先读取响应头，拿到状态码和内容长度，再决定怎么读正文。
-    int content_length = esp_http_client_fetch_headers(client);// 获取 HTTP 响应头部，返回内容长度，如果有的话。
-    s_http.status_code = esp_http_client_get_status_code(client); // 获取 HTTP 响应状态码
+    // 先读响应头，拿到状态码和内容长度，再决定怎么读取正文。
+    int content_length = esp_http_client_fetch_headers(client);
+    s_http.status_code = esp_http_client_get_status_code(client);
     if (content_length < 0) {
-        // 分块传输或长度未知时，仍然允许继续读到本地缓冲区上限。
+        // 分块传输或长度未知时，仍然允许继续读，但上限不能超过本地缓冲区。
         content_length = (int)sizeof(s_http.response_body) - 1;
     }
 
     // 采用循环读取，避免只拿到部分正文导致 JSON 解析失败。
     int total_read_len = 0;
     while (total_read_len < (int)sizeof(s_http.response_body) - 1) {
+        // 每次都从“当前已写入内容的后面”继续写，避免把前一轮读取到的正文覆盖掉。
         int once_read_len = esp_http_client_read(
             client,
             s_http.response_body + total_read_len,
             (sizeof(s_http.response_body) - 1) - total_read_len);
         if (once_read_len < 0) {
-            esp_http_client_close(client);// 关闭当前 HTTP 会话
-            esp_http_client_cleanup(client);// 清理 HTTP 客户端资源
+            // 读正文失败时立刻收尾，并把状态同步成 READ_FAIL。
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
             s_http.request_in_progress = false;
-            http_service_set_result(false, s_http.status_code, "READ_FAIL");// 更新状态为读取失败，供 LCD 显示。
+            http_service_set_result(false, s_http.status_code, "READ_FAIL");
             return ESP_FAIL;
         }
 
         if (once_read_len == 0) {
+            // 返回 0 表示当前已经没有更多正文可读，不是错误，正常结束循环。
             break;
         }
 
+        // 累计已读取正文长度，下一轮继续从后面追加。
         total_read_len += once_read_len;
     }
 
-    s_http.response_body[total_read_len] = '\0'; // 确保响应正文以 null 结尾，方便后续处理和显示。
+    // 补上字符串结束符，后面日志打印和 cJSON 解析都依赖这一点。
+    s_http.response_body[total_read_len] = '\0';
     ESP_LOGI(TAG, "http status=%d content_length=%d body_len=%d", s_http.status_code, content_length, total_read_len);
 
     if (total_read_len == 0) {
@@ -230,12 +272,14 @@ esp_err_t http_service_request_get(const char *url)
         http_service_set_result(false, s_http.status_code, http_service_status_to_string(s_http.status_code));
     } else {
         ESP_LOGI(TAG, "http body=%s", s_http.response_body);
-        http_service_parse_json_summary(s_http.response_body);// 从响应正文中解析出摘要信息，更新显示状态。
+        // 读到正文后再交给 JSON 摘要解析器，更新 LCD 和内部状态。
+        http_service_parse_json_summary(s_http.response_body);
     }
 
-    esp_http_client_close(client);// 关闭当前 HTTP 会话
-    esp_http_client_cleanup(client);// 清理 HTTP 客户端资源
-    s_http.request_in_progress = false;// 请求完成，更新状态为非进行中。
+    // 请求完成后统一收尾，避免句柄和连接泄漏。
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    s_http.request_in_progress = false;
     return ESP_OK;
 }
 
@@ -249,37 +293,62 @@ void http_service_process(void)
 {
     if (!s_http.inited || !APP_HTTP_AUTO_START) {
         return;
-    }// 如果已经自动请求过了，就不再重复请求了。
+    }
 
     if (s_http.auto_request_done) {
         return;
-    }// 自动请求的前提是必须联网成功拿到 IP，避免无谓的请求失败和状态更新。
+    }
 
-    if (wifi_service_get_state() != WIFI_STATE_GOT_IP) {//  如果还没有联网成功，就先不自动请求了，等下次周期再检查。
+    // 自动请求的前提是已经拿到 IP，否则请求只会无意义失败。
+    if (wifi_service_get_state() != WIFI_STATE_GOT_IP) {
         return;
-    }//
+    }
 
     if (http_service_request_get(APP_HTTP_TEST_URL) == ESP_OK) {
         s_http.auto_request_done = true;
-    }// 如果请求失败了，保持 auto_request_done 还是 false，这样下个周期还会继续尝试，直到成功为止。
+    }
+    // 如果请求失败了，保持 auto_request_done 仍然为 false，
+    // 这样后续周期还能继续自动尝试。
 }
 
+/**
+ * @brief 判断 HTTP 服务是否已经初始化完成
+ */
 bool http_service_is_ready(void)
 {
     return s_http.inited;
 }
 
+/**
+ * @brief 获取最近一次 HTTP 请求是否成功
+ */
 bool http_service_is_success(void)
 {
     return s_http.last_success;
 }
 
+/**
+ * @brief 获取最近一次 HTTP 状态码
+ */
 int http_service_get_status_code(void)
 {
     return s_http.status_code;
 }
 
+/**
+ * @brief 获取最近一次 HTTP 结果摘要
+ */
 const char *http_service_get_message(void)
 {
     return s_http.message;
+}
+
+/**
+ * @brief 获取最近一次 HTTP 响应正文缓存
+ *
+ * 这个接口主要给 ota_service 这种“需要继续消费完整 JSON 正文”的模块使用。
+ */
+const char *http_service_get_response_body(void)
+{
+    return s_http.response_body;
 }

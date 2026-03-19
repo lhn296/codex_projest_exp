@@ -1,14 +1,14 @@
-# ESP32 HTTP JSON Template
+# ESP32 Cloud OTA Template
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON` 的板载交互、显示、联网与网络应用模板练习，并继续复用现有统一事件架构。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA` 的板载交互、显示、联网与云端版本检查模板练习，并继续复用现有统一事件架构。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
-- 显示名称：`ESP32 HTTP JSON Template`
-- 当前版本：`v1.6.0`
+- 显示名称：`ESP32 Cloud OTA Template`
+- 当前版本：`v1.8.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.6.0 HTTP JSON Foundation`
+- 当前阶段：`v1.8.0 Cloud Version Check`
 
 当前行为：
 
@@ -33,6 +33,8 @@
 - 新增 `http_service`，用于基础 `HTTP GET` 请求与结果缓存
 - 新增基础 `JSON` 解析链路，用于从响应正文中提取摘要信息
 - 新增 LCD 首页显示 `HTTP` 状态、状态码和消息摘要
+- 新增 `ota_service` 云端版本检查链路，支持从真实版本接口获取 `version / url / message`
+- 新增 HTTPS 证书包挂接，后续可直接访问 `Cloudflare Workers` 这类 HTTPS 版本接口
 - 支持按键消抖、单击、长按、双击三种手势
 - 按键服务不再直接修改 LED，而是通过队列发送事件
 - 增加统一事件日志和基础发送/接收统计
@@ -162,6 +164,7 @@ idf.py -p COM3 monitor
 - 当前 `I2C / XL9555` 映射打印完成
 - 当前 `Wi-Fi` 配置和联网状态打印完成
 - 当前 `HTTP` 请求结果和 JSON 解析摘要打印完成
+- 当前 `OTA` 云端版本检查结果打印完成
 - 按键服务打印消抖、长按、双击配置时间
 - 事件任务日志打印统一事件接收、处理和 LED 模式变化
 - 按键初始化日志打印 `source=XL9555`
