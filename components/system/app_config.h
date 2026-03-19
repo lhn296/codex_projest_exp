@@ -14,14 +14,14 @@ extern "C" {
  * 项目模板信息
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
-#define APP_PROJECT_DISPLAY_NAME          "ESP32 Cloud OTA Template"
-#define APP_PROJECT_VERSION               "v1.8.0"
+#define APP_PROJECT_DISPLAY_NAME          "ESP32 Real OTA Template"
+#define APP_PROJECT_VERSION               "v1.9.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v1.8.0 Cloud Version Check"
+#define APP_PROJECT_STAGE_NAME            "v1.9.0 Real OTA Upgrade"
 
 /* =========================
  * SYS LED 配置
@@ -120,9 +120,10 @@ extern "C" {
  * OTA 配置
  * ========================= */
 #define APP_OTA_AUTO_CHECK                1
-#define APP_OTA_AUTO_UPGRADE              0
+#define APP_OTA_AUTO_UPGRADE              1
 #define APP_OTA_CHECK_INTERVAL_MS         10000
 #define APP_OTA_VERSION_URL               "http://1406834977-7btxur47w5.ap-guangzhou.tencentscf.com/version"
+#define APP_OTA_WRITE_BUFFER_SIZE         1024
 
 /* =========================
  * 按键服务配置

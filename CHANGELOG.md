@@ -2,12 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## v1.5.0 - 2026-03-16
+## v1.9.0 - 2026-03-19
 
 ### Added
-- Added `wifi_service` as a reusable Wi-Fi STA foundation layer with event-driven state updates.
-- Added Wi-Fi state and IP display support in `display_service`.
-- Added Wi-Fi configuration entries in `app_config.h` for SSID, password, retry count, and timeout.
+- Added real OTA download-and-apply flow in `ota_service`, including `esp_ota_begin`, chunked `esp_ota_write`, `esp_ota_end`, boot-partition switch, and reboot.
+- Added `OTA_STATE_VERIFY` so the OTA state machine can express the post-download verification and switch stage.
+- Added `APP_OTA_WRITE_BUFFER_SIZE` in `app_config.h` for OTA write-buffer control.
+
+### Changed
+- Changed the project positioning from cloud version-check learning to real OTA upgrade learning.
+- Changed the partition layout to `Two OTA Large`, giving the project dual OTA app slots and practical space for real upgrades.
+- Updated project metadata and LCD OTA status display to describe the `v1.9.0` real OTA upgrade stage.
 
 ## v1.8.0 - 2026-03-18
 
@@ -21,11 +26,6 @@ All notable changes to this project will be documented in this file.
 - Changed OTA metadata flow from local compile-time mock values to HTTP-driven cloud payload parsing.
 - Updated project metadata and docs to describe the `v1.8.0` cloud version check stage.
 
-### Changed
-- Changed project positioning from display-only optimization to Wi-Fi network foundation learning.
-- Changed the LCD home page so it can now display Wi-Fi state and current IP address.
-- Updated startup logs and metadata to describe the `v1.5.0` Wi-Fi network foundation stage.
-
 ## v1.6.0 - 2026-03-18
 
 ### Added
@@ -37,6 +37,29 @@ All notable changes to this project will be documented in this file.
 - Changed project positioning from Wi-Fi-only connectivity learning to HTTP and JSON application-layer learning.
 - Changed the LCD home page so it can now display HTTP result status together with Wi-Fi information.
 - Updated startup logs and metadata to describe the `v1.6.0` HTTP JSON foundation stage.
+
+## v1.5.0 - 2026-03-16
+
+### Added
+- Added `wifi_service` as a reusable Wi-Fi STA foundation layer with event-driven state updates.
+- Added Wi-Fi state and IP display support in `display_service`.
+- Added Wi-Fi configuration entries in `app_config.h` for SSID, password, retry count, and timeout.
+
+### Changed
+- Changed project positioning from display-only optimization to Wi-Fi network foundation learning.
+- Changed the LCD home page so it can now display Wi-Fi state and current IP address.
+- Updated startup logs and metadata to describe the `v1.5.0` Wi-Fi network foundation stage.
+
+## v1.4.1 - 2026-03-16
+
+### Added
+- Added LCD local-region clear helper in `bsp_lcd` for later partial refresh support.
+- Added `v1.4.1` display-layout planning docs for the display-service optimization stage.
+
+### Changed
+- Changed `display_service` from single-page dirty redraw to region-based dirty refresh.
+- Changed the LCD home page into clearer header, project info, LED, beep, and last-event sections.
+- Updated project metadata and startup stage description to `v1.4.1` display-service optimization.
 
 ## v1.4.0 - 2026-03-16
 
@@ -50,17 +73,6 @@ All notable changes to this project will be documented in this file.
 - Changed project positioning from board interaction learning to SPI LCD display template learning.
 - Changed the unified event task so button events now refresh LCD state together with LED and buzzer feedback.
 - Updated startup logs and metadata to describe the `v1.4.0` SPI LCD display template stage.
-
-## v1.4.1 - 2026-03-16
-
-### Added
-- Added LCD local-region clear helper in `bsp_lcd` for later partial refresh support.
-- Added `v1.4.1` display-layout planning docs for the display-service optimization stage.
-
-### Changed
-- Changed `display_service` from single-page dirty redraw to region-based dirty refresh.
-- Changed the LCD home page into clearer header, project info, LED, beep, and last-event sections.
-- Updated project metadata and startup stage description to `v1.4.1` display-service optimization.
 
 ## v1.3.1 - 2026-03-16
 

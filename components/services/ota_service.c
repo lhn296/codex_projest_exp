@@ -7,8 +7,15 @@
 #include "app_config.h"
 #include "cJSON.h"
 #include "display_service.h"
+#include "esp_crt_bundle.h"
+#include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
+#include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "http_service.h"
 #include "wifi_service.h"
 
@@ -24,6 +31,7 @@ typedef struct {
     char firmware_url[160];           // 最近一次检测到的固件下载地址。
     char message[64];                 // 当前状态说明文本，供 LCD 和日志复用。
     int last_http_status_code;        // 最近一次版本接口访问的 HTTP 状态码。
+    size_t downloaded_bytes;          // 最近一次 OTA 下载写入的固件字节数。
 } ota_service_ctx_t;
 
 static ota_service_ctx_t s_ota = {
@@ -36,12 +44,24 @@ static ota_service_ctx_t s_ota = {
     .firmware_url = {0},
     .message = "IDLE",
     .last_http_status_code = 0,
+    .downloaded_bytes = 0,
 };
 
 /**
  * @brief 把 OTA 状态转成更易读的日志文本
  */
 static const char *ota_service_state_to_string(ota_state_t state);
+
+/**
+ * @brief 下载固件并写入 OTA 分区
+ *
+ * 这是 v1.9.0 的核心流程：
+ * 1. 打开云端固件下载地址
+ * 2. 获取下一个可更新分区
+ * 3. 边下载边调用 esp_ota_write 写入分区
+ * 4. 写完后结束 OTA、切换启动分区并重启
+ */
+static esp_err_t ota_service_download_and_apply(void);
 
 /**
  * @brief 从云端版本 JSON 中解析 OTA 需要的字段
@@ -125,6 +145,8 @@ static const char *ota_service_state_to_string(ota_state_t state)
             return "READY";
         case OTA_STATE_DOWNLOADING:
             return "DOWNLOADING";
+        case OTA_STATE_VERIFY:
+            return "VERIFY";
         case OTA_STATE_SUCCESS:
             return "SUCCESS";
         case OTA_STATE_FAIL:
@@ -150,14 +172,173 @@ static bool ota_service_compare_version(const char *current_version, const char 
 }
 
 /**
+ * @brief 下载固件并写入 OTA 分区
+ */
+static esp_err_t ota_service_download_and_apply(void)
+{
+    if (s_ota.firmware_url[0] == '\0') {
+        ota_service_set_state(OTA_STATE_FAIL, "URL_EMPTY");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // 真实 OTA 不能覆盖当前正在运行的分区，必须写到“下一个升级分区”。
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);// 获取下一个可更新分区，后续的写入都针对这个分区进行。
+    if (update_partition == NULL) {
+        ota_service_set_state(OTA_STATE_FAIL, "NO_PARTITION");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG,
+             "auto upgrade start, current=%s target=%s url=%s",
+             APP_PROJECT_VERSION,
+             s_ota.target_version,
+             s_ota.firmware_url);
+    ESP_LOGI(TAG,
+             "target ota partition: label=%s address=0x%08x size=%u",
+             update_partition->label,
+             (unsigned)update_partition->address,
+             (unsigned)update_partition->size);
+
+    // 进入下载流程前先切到 DOWNLOADING 状态，给用户和日志明确的反馈。
+    esp_http_client_config_t config = {
+        .url = s_ota.firmware_url,
+        .timeout_ms = APP_HTTP_TIMEOUT_MS,
+        .method = HTTP_METHOD_GET,
+        .addr_type = HTTP_ADDR_TYPE_INET,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);// 创建 HTTP 客户端对象，后续的 open/read/close 都围绕这个句柄进行。
+    if (client == NULL) {
+        ota_service_set_state(OTA_STATE_FAIL, "HTTP_INIT_FAIL");
+        return ESP_FAIL;
+    }
+
+    esp_ota_handle_t ota_handle = 0;
+    bool ota_begun = false;
+    s_ota.downloaded_bytes = 0;
+    ota_service_set_state(OTA_STATE_DOWNLOADING, "DOWNLOADING");
+
+    // 打开固件下载连接，后面通过 read + write 方式边下载边写分区。
+    esp_err_t ret = esp_http_client_open(client, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "firmware open failed, ret=0x%x", ret);
+        ota_service_set_state(OTA_STATE_FAIL, "OPEN_FAIL");
+        esp_http_client_cleanup(client);
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "firmware url opened");
+
+    int content_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);
+    if (status_code != 200) {
+        ESP_LOGE(TAG, "firmware http status invalid, status=%d", status_code);
+        ota_service_set_state(OTA_STATE_FAIL, "HTTP_STATUS");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "firmware response ready, status=%d content_length=%d", status_code, content_length);
+
+    // OTA 写入开始后，后面的每一块数据都写到 update_partition。
+    ret = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &ota_handle);// 开始 OTA 升级，拿到 OTA 句柄后才能调用 esp_ota_write 进行写入。
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin failed, ret=0x%x", ret);
+        ota_service_set_state(OTA_STATE_FAIL, "OTA_BEGIN");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ret;
+    }
+    ota_begun = true;
+    ESP_LOGI(TAG, "ota begin success");
+
+    uint8_t buffer[APP_OTA_WRITE_BUFFER_SIZE];
+    size_t next_progress_log_bytes = 32 * 1024;
+    while (true) {
+        // 每次从网络读取一小块固件，再立刻写入 OTA 分区。
+        int once_read_len = esp_http_client_read(client, (char *)buffer, sizeof(buffer));
+        if (once_read_len < 0) {
+            ESP_LOGE(TAG, "firmware read failed");
+            ret = ESP_FAIL;
+            ota_service_set_state(OTA_STATE_FAIL, "READ_FAIL");
+            break;
+        }
+
+        if (once_read_len == 0) {
+            // 返回 0 说明固件数据已经读完，不是错误。
+            ret = ESP_OK;
+            break;
+        }
+
+        ret = esp_ota_write(ota_handle, buffer, once_read_len);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write failed, ret=0x%x", ret);
+            ota_service_set_state(OTA_STATE_FAIL, "WRITE_FAIL");
+            break;
+        }
+
+        s_ota.downloaded_bytes += (size_t)once_read_len;
+        if (s_ota.downloaded_bytes >= next_progress_log_bytes) {
+            ESP_LOGI(TAG, "ota downloading... bytes=%u", (unsigned)s_ota.downloaded_bytes);
+            next_progress_log_bytes += 32 * 1024;
+        }
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    if (ret != ESP_OK) {
+        if (ota_begun) {
+            esp_ota_abort(ota_handle);
+        }
+        return ret;
+    }
+
+    ota_service_set_state(OTA_STATE_VERIFY, "VERIFY"); // 下载完成后先切到 VERIFY 状态，给用户和日志明确的反馈。
+    ESP_LOGI(TAG, "firmware download finished, total_bytes=%u", (unsigned)s_ota.downloaded_bytes);
+
+    ret = esp_ota_end(ota_handle);// 结束 OTA 升级，完成校验并释放 OTA 句柄，后续才能切换启动分区。
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end failed, ret=0x%x", ret);
+        ota_service_set_state(OTA_STATE_FAIL, "OTA_END");
+        return ret;
+    }
+    ESP_LOGI(TAG, "ota end success");
+
+    ret = esp_ota_set_boot_partition(update_partition);//   设置新的启动分区，后续重启后就会从这个分区启动。
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "set boot partition failed, ret=0x%x", ret);
+        ota_service_set_state(OTA_STATE_FAIL, "SET_BOOT");
+        return ret;
+    }
+    ESP_LOGI(TAG, "set boot partition success, next=%s", update_partition->label);
+
+    ESP_LOGI(TAG,
+             "ota download success, bytes=%u content_length=%d target_partition=%s",
+             (unsigned)s_ota.downloaded_bytes,
+             content_length,
+             update_partition->label);
+
+    ota_service_set_state(OTA_STATE_SUCCESS, "REBOOTING");// 升级成功后切到 SUCCESS 状态，并提示正在重启。
+
+    // 留一点时间给串口和 LCD 完成最后一次状态输出。
+    ESP_LOGI(TAG, "reboot to new firmware in 1 second");
+    vTaskDelay(pdMS_TO_TICKS(1000));// 1 秒后重启，重启后新固件就会从 update_partition 启动。
+    esp_restart();// 重启后新固件就会从 update_partition 启动。
+    return ESP_OK;
+}
+
+/**
  * @brief 执行一次 OTA 版本检查
  *
- * 当前版本先做“可复用骨架”：
+ * 当前版本先做真实云端版本检查：
  * 1. 联网成功后进入检查状态
  * 2. 通过 HTTP 访问真实云端版本接口
  * 3. 解析 version / url / message
  * 4. 如果发现新版本，则进入 READY
- * 5. 自动升级入口先保留，后续接真实 OTA 下载链时再补
+ * 5. 如果开启自动升级，则继续执行真实 OTA 下载与切换主链
  */
 static void ota_service_check_once(void)
 {
@@ -202,19 +383,18 @@ static void ota_service_check_once(void)
              s_ota.message);
 
     if (APP_OTA_AUTO_UPGRADE) {
-        // 当前版本先保留自动升级入口，后面接真实 OTA 下载链时再扩展：
-        // 下载固件 -> 写分区 -> 设置启动分区 -> 重启。
-        ota_service_set_state(OTA_STATE_FAIL, "AUTO_DISABLED");
+        // 开启自动升级后，直接进入真实下载与切换链。
+        (void)ota_service_download_and_apply();
     }
 }
 
 /**
  * @brief 初始化 OTA 服务
  *
- * 当前先做“版本检查骨架版”：
+ * 当前先做“真实 OTA 升级基础版”：
  * - 初始化状态缓存
  * - 同步默认显示状态
- * - 为后续真实 OTA 下载链保留统一入口
+ * - 为真实 OTA 下载链保留统一入口
  */
 esp_err_t ota_service_init(void)
 {
@@ -225,6 +405,7 @@ esp_err_t ota_service_init(void)
     // 检查前默认把目标版本设成当前版本，避免未初始化时显示脏值。
     snprintf(s_ota.target_version, sizeof(s_ota.target_version), "%s", APP_PROJECT_VERSION);
     snprintf(s_ota.firmware_url, sizeof(s_ota.firmware_url), "%s", "");
+    s_ota.downloaded_bytes = 0;
     ota_service_set_state(OTA_STATE_IDLE, "IDLE");
     s_ota.inited = true;
     ESP_LOGI(TAG, "ota service ready, auto_check=%d auto_upgrade=%d version_url=%s",

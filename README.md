@@ -1,14 +1,14 @@
-# ESP32 Cloud OTA Template
+# ESP32 Real OTA Template
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA` 的板载交互、显示、联网与云端版本检查模板练习，并继续复用现有统一事件架构。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA` 的板载交互、显示、联网、云端版本检查与真实 OTA 升级模板练习，并继续复用现有统一事件架构。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
-- 显示名称：`ESP32 Cloud OTA Template`
-- 当前版本：`v1.8.0`
+- 显示名称：`ESP32 Real OTA Template`
+- 当前版本：`v1.9.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.8.0 Cloud Version Check`
+- 当前阶段：`v1.9.0 Real OTA Upgrade`
 
 当前行为：
 
@@ -22,30 +22,21 @@
 - 引入 `FreeRTOS Queue` 传递按键事件
 - 新增 `app_event_task` 处理业务事件
 - 统一队列消息结构为通用事件格式
-- 主循环负责按键状态机和 LED 周期服务
+- 主循环负责按键状态机、LED、蜂鸣器、显示、Wi-Fi、HTTP 与 OTA 服务推进
 - `KEY0 ~ KEY2` 映射到三路 LED 业务
 - `KEY3` 作为板载功能键
 - 新增 `beep_service`，支持基础蜂鸣反馈和测试模式
-- 新增 LCD 首页显示版本、阶段、LED 状态、蜂鸣器状态和最近按键事件
+- 新增 LCD 首页显示版本、阶段、LED 状态、蜂鸣器状态、Wi-Fi 状态、IP 信息、HTTP 状态和 OTA 状态
 - 首页显示服务已升级为分区布局，支持局部区域刷新
 - 新增 `wifi_service`，用于 Wi-Fi 初始化、联网状态管理和 IP 获取
-- 新增 LCD 首页显示 `Wi-Fi` 状态和 `IP` 信息
-- 新增 `http_service`，用于基础 `HTTP GET` 请求与结果缓存
-- 新增基础 `JSON` 解析链路，用于从响应正文中提取摘要信息
-- 新增 LCD 首页显示 `HTTP` 状态、状态码和消息摘要
+- 新增 `http_service`，用于基础 `HTTP GET` 请求、完整响应体缓存和 JSON 解析
 - 新增 `ota_service` 云端版本检查链路，支持从真实版本接口获取 `version / url / message`
-- 新增 HTTPS 证书包挂接，后续可直接访问 `Cloudflare Workers` 这类 HTTPS 版本接口
+- 新增 HTTPS 证书包挂接，支持访问通用 HTTPS JSON 接口
+- 当前已切到 `Two OTA Large` 分区方案，为真实 OTA 预留双 OTA 分区空间
+- 新增真实 OTA 下载与写分区主链，支持 `esp_ota_begin -> esp_ota_write -> esp_ota_end -> esp_ota_set_boot_partition`
+- OTA 状态新增 `VERIFY`
 - 支持按键消抖、单击、长按、双击三种手势
-- 按键服务不再直接修改 LED，而是通过队列发送事件
-- 增加统一事件日志和基础发送/接收统计
-- 新增可复用的 `i2c_bus` 通用访问层
-- 新增可复用的 `xl9555` 驱动层
-- 新增 `bsp_xl9555` 板级适配层，预留蜂鸣器与 LCD 控制接口
-- 新增可复用的 `HTTP / JSON` 服务模板，为后续 `OTA / AI` 链路做准备
-- 单击后，该 LED 在以下模式间循环切换：
-  `OFF -> ON -> BLINK_SLOW -> BLINK_FAST -> OFF`
-- 长按后，对应 LED 无论当前状态如何都直接关闭
-- 双击后，对应 LED 无论当前状态如何都直接进入快速闪烁
+- 新增可复用的 `i2c_bus`、`xl9555`、`spi_bus`、`lcd_st7789v`、`wifi_service`、`http_service`、`ota_service` 模板
 
 默认 LED 模式：
 
@@ -57,15 +48,15 @@
 
 - `main/`：程序入口，只负责打印启动信息并启动应用任务
 - `components/app/`：应用编排层，负责初始化服务和主循环调度
-- `components/services/`：业务服务层，负责 LED、蜂鸣器、显示和 Wi-Fi 状态管理
-- `components/services/`：业务服务层，负责 LED、蜂鸣器、显示、Wi-Fi 和 HTTP 状态管理
+- `components/services/`：业务服务层，负责 LED、蜂鸣器、显示、Wi-Fi、HTTP 与 OTA 状态管理
 - `components/bsp/`：板级支持层，负责 GPIO、I2C、XL9555 与硬件读写
+- `components/driver/`：通用驱动层，负责 `i2c_bus`、`spi_bus`、`xl9555`、`lcd_st7789v`
 - `components/system/`：系统配置与公共类型定义
-- `docs/`：补充说明文档和发布笔记
+- `docs/`：补充说明文档、模板文档、发布笔记与调试记录
 
 ## 硬件连接
 
-本版本开始切到 `DNESP32S3` 开发板的板载 `XL9555` 输入链路。
+本工程当前主要基于 `DNESP32S3` 开发板和板载 `XL9555` 输入链路。
 
 ### LED
 
@@ -120,20 +111,7 @@
 - 板载按键通过 `XL9555` 读取，按下为低电平有效。
 - `KEY3` 作为功能键，用于控制蜂鸣器提示使能和测试模式。
 - 当前版本默认把 `GPIO13` 按 LCD 的 `DC/WR` 控制脚使用，而不是读回 `MISO`。
-- 如果板级接法变化，优先修改 `components/system/app_config.h` 中的 `I2C / XL9555` 配置。
-- 如果 LCD 模块初始化参数需要微调，优先查看 `components/driver/lcd_st7789v.c` 和 `components/bsp/bsp_lcd.c`。
-- 如果外部 LED 使用方式不同，优先修改 `components/system/app_config.h` 中的 LED GPIO 和有效电平配置。
-
-按键时序参数同样集中在 `components/system/app_config.h`：
-
-- 消抖时间：`APP_BUTTON_DEBOUNCE_MS`
-- 长按判定时间：`APP_BUTTON_LONG_PRESS_MS`
-- 双击判定窗口：`APP_BUTTON_DOUBLE_CLICK_MS`
-- 蜂鸣器短响时间：`APP_BEEP_SHORT_ON_MS`
-- 蜂鸣器长响时间：`APP_BEEP_LONG_ON_MS`
-- `SPI` 总线、LCD 分辨率、LCD 控制引脚配置
-- `Wi-Fi` 的 SSID、密码、重试次数和连接超时配置
-- `HTTP` 的测试 URL、请求超时和自动请求配置
+- 如果板级接法变化，优先修改 `components/system/app_config.h` 中的 `I2C / XL9555 / LCD / OTA` 配置。
 
 ## 关键配置入口
 
@@ -143,8 +121,16 @@
 - 任务名、任务栈大小、任务优先级、主循环周期
 - 三路 LED 的 GPIO、有效电平、默认上电状态、默认模式
 - `I2C` 总线配置、`XL9555` 地址、板级引脚映射
-- LED 快闪和慢闪周期
+- `SPI` 总线、LCD 分辨率、LCD 控制引脚配置
 - `Wi-Fi STA` 配置与联网重试参数
+- `HTTP` 的测试 URL、请求超时和自动请求配置
+- `OTA` 的版本接口地址、自动检查开关、自动升级开关、写入缓冲大小
+
+## 当前说明
+
+- 当前默认配置仍保持 `APP_OTA_AUTO_UPGRADE = 0`，也就是上电后默认只做云端版本检查，不会直接开始真实升级。
+- 当前版本已经具备真实 OTA 下载和写分区主链，但只有在云端 `url` 指向真实可访问的 `.bin` 固件地址时，真实升级才有意义。
+- 真正上板验证完整 OTA 升级前，建议先准备一份可公网访问的真实 `.bin` 固件地址。
 
 ## 开发与验证
 
@@ -160,15 +146,11 @@ idf.py -p COM3 monitor
 
 - 统一的项目显示名称、版本号与学习阶段
 - `app_main_task` 创建成功
-- LED 服务、蜂鸣器服务、显示服务、Wi-Fi 服务、HTTP 服务与按键服务初始化成功
-- 当前 `I2C / XL9555` 映射打印完成
-- 当前 `Wi-Fi` 配置和联网状态打印完成
+- LED、蜂鸣器、显示、Wi-Fi、HTTP、OTA 与按键服务初始化成功
+- 当前 `I2C / XL9555`、LCD / SPI、Wi-Fi、HTTP、OTA 配置打印完成
 - 当前 `HTTP` 请求结果和 JSON 解析摘要打印完成
 - 当前 `OTA` 云端版本检查结果打印完成
-- 按键服务打印消抖、长按、双击配置时间
-- 事件任务日志打印统一事件接收、处理和 LED 模式变化
-- 按键初始化日志打印 `source=XL9555`
-- 默认 LED 模式已应用
+- 当开启真实升级时，还会看到下载、写入、切换启动分区和重启流程日志
 
 上板验证建议：
 
@@ -178,11 +160,11 @@ idf.py -p COM3 monitor
 4. 快速双击 `KEY0 ~ KEY2`，确认对应 LED 无论当前状态如何都直接进入快闪。
 5. 单击 `KEY3`，确认蜂鸣器提示使能状态切换。
 6. 双击 `KEY3`，确认蜂鸣器测试模式切换。
-7. 观察 LCD 首页，确认版本号、阶段名、LED 状态、蜂鸣器状态、Wi-Fi 状态、IP 信息和最近事件会刷新。
-8. 连续操作不同按键时，观察页面局部区域刷新是否正常，不再每次整页重绘。
-9. 如果 `SSID` 和密码配置正确，观察串口日志和 LCD，确认能看到 `CONNECTING -> CONNECTED -> GOT_IP` 的状态变化。
-10. 联网成功后，观察设备是否自动发起一次 HTTP 请求，并在 LCD 上显示 `HTTP / CODE / MSG`。
-11. 观察串口日志，确认能看到按键名称、手势类型、LED / 蜂鸣器 / 显示 / Wi-Fi / HTTP 业务处理过程。
+7. 观察 LCD 首页，确认版本号、阶段名、LED 状态、蜂鸣器状态、Wi-Fi 状态、HTTP 状态和 OTA 状态会刷新。
+8. 如果 `SSID` 和密码配置正确，观察串口日志和 LCD，确认能看到 `CONNECTING -> CONNECTED -> GOT_IP` 的状态变化。
+9. 观察设备是否自动发起一次 HTTP 请求，并在 LCD 上显示 `HTTP / CODE / MSG`。
+10. 观察 OTA 区域，确认云端版本检查后能看到 `CHECK / READY / NO_UPDATE / FAIL`。
+11. 如果后续开启 `APP_OTA_AUTO_UPGRADE = 1` 且云端 `url` 指向真实可下载固件，观察串口日志是否进入 `DOWNLOADING -> VERIFY -> SUCCESS -> REBOOTING`。
 
 ## 发布与维护
 

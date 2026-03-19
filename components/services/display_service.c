@@ -259,6 +259,8 @@ static const char *display_service_ota_state_to_string(ota_state_t state)
             return "READY";
         case OTA_STATE_DOWNLOADING:
             return "DOWN";
+        case OTA_STATE_VERIFY:
+            return "VERIFY";
         case OTA_STATE_SUCCESS:
             return "SUCCESS";
         case OTA_STATE_FAIL:
@@ -492,6 +494,8 @@ static esp_err_t display_service_draw_wifi_panel(void)
 static esp_err_t display_service_draw_http_panel(void)
 {
     char code_text[16];
+    const char *http_state_text = NULL;
+    uint16_t http_state_color = DISPLAY_COLOR_WHITE;
 
     esp_err_t ret = display_service_clear_region(
         DISPLAY_HTTP_PANEL_X,
@@ -502,13 +506,26 @@ static esp_err_t display_service_draw_http_panel(void)
         return ret;
     }
 
+    // 请求发起后，HTTP 区先显示 REQUESTING。
+    // 这里把它单独显示成 REQ，避免用户在真正拿到结果前先看到 FAIL。
+    if (strcmp(s_display.http_message, "REQUESTING") == 0) {
+        http_state_text = "REQ";
+        http_state_color = DISPLAY_COLOR_YELLOW;
+    } else if (s_display.http_success) {
+        http_state_text = "OK";
+        http_state_color = DISPLAY_COLOR_GREEN;
+    } else {
+        http_state_text = "FAIL";
+        http_state_color = DISPLAY_COLOR_RED;
+    }
+
     ret = display_service_draw_line(
         DISPLAY_HTTP_PANEL_X,
         DISPLAY_HTTP_PANEL_Y,
-        s_display.http_success ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_RED,
+        http_state_color,
         DISPLAY_TEXT_SCALE_SMALL,
         "HTTP",
-        s_display.http_success ? "OK" : "FAIL");
+        http_state_text);
     if (ret != ESP_OK) {
         return ret;
     }

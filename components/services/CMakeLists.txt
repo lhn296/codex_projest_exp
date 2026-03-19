@@ -18,6 +18,7 @@ idf_component_register(
         esp_netif
         nvs_flash
         esp_http_client
+        app_update
         json
         mbedtls
 )
