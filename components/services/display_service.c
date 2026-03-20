@@ -45,6 +45,13 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_EVENT_PANEL_X       8
 #define DISPLAY_EVENT_PANEL_Y       220
 #define DISPLAY_EVENT_VALUE_X       56
+#define DISPLAY_MENU_TITLE_X        8
+#define DISPLAY_MENU_TITLE_Y        12
+#define DISPLAY_MENU_LINE_X         12
+#define DISPLAY_MENU_LINE_Y         60
+#define DISPLAY_MENU_LINE_STEP      28
+#define DISPLAY_MENU_HINT_X         8
+#define DISPLAY_MENU_HINT_Y         210
 
 #define DISPLAY_HEADER_AREA_W       220
 #define DISPLAY_HEADER_AREA_H       20
@@ -74,9 +81,16 @@ typedef struct {
     bool ota_panel_dirty;          // OTA 状态区是否需要重绘。
     bool wifi_panel_dirty;         // Wi-Fi 状态区是否需要重绘。
     bool event_panel_dirty;        // 最近事件区是否需要重绘。
+    bool menu_visible;             // 当前是否显示菜单覆盖页。
+    bool menu_dirty;               // 菜单页是否需要重绘。
     char version[24];              // 当前显示的版本字符串。
     char stage[48];                // 当前显示的阶段说明字符串。
     char config_source[16];        // 当前配置来源摘要，例如 DEFAULT/NVS/MIXED。
+    char menu_title[24];           // 菜单页标题。
+    char menu_line1[64];           // 菜单第 1 行内容。
+    char menu_line2[64];           // 菜单第 2 行内容。
+    char menu_line3[64];           // 菜单第 3 行内容。
+    int menu_selected_index;       // 当前菜单选中行，-1 表示只展示不高亮。
     button_id_t last_button_id;    // 最近一次按键事件对应的按键编号。
     button_event_t last_button_event; // 最近一次按键事件类型。
     led_mode_t led_modes[LED_ID_MAX]; // 三路 LED 当前模式缓存。
@@ -104,9 +118,16 @@ static display_service_ctx_t s_display = {
     .ota_panel_dirty = false,
     .wifi_panel_dirty = false,
     .event_panel_dirty = false,
+    .menu_visible = false,
+    .menu_dirty = false,
     .version = {0},
     .stage = {0},
     .config_source = "DEFAULT",
+    .menu_title = {0},
+    .menu_line1 = {0},
+    .menu_line2 = {0},
+    .menu_line3 = {0},
+    .menu_selected_index = -1,
     .last_button_id = BTN_SYS,
     .last_button_event = BUTTON_EVENT_NONE,
     .led_modes = {LED_MODE_OFF, LED_MODE_OFF, LED_MODE_OFF},
@@ -354,6 +375,88 @@ static esp_err_t display_service_draw_project_info(void)
         DISPLAY_TEXT_SCALE_SMALL,
         "CFG",
         s_display.config_source);
+}
+
+/**
+ * @brief 绘制菜单覆盖页
+ *
+ * 菜单页采用全屏覆盖方式，先清空屏幕，再绘制标题、三行内容和固定的按键提示。
+ */
+static esp_err_t display_service_draw_menu_page(void)
+{
+    char line_buf[72];
+
+    esp_err_t ret = bsp_lcd_clear(DISPLAY_COLOR_BLACK);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = bsp_lcd_draw_string_scaled(
+        DISPLAY_MENU_TITLE_X,
+        DISPLAY_MENU_TITLE_Y,
+        s_display.menu_title,
+        DISPLAY_COLOR_YELLOW,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_BODY);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    (void)snprintf(line_buf,
+                   sizeof(line_buf),
+                   "%s%s",
+                   s_display.menu_selected_index == 0 ? "> " : "  ",
+                   s_display.menu_line1);
+    ret = bsp_lcd_draw_string_scaled(
+        DISPLAY_MENU_LINE_X,
+        DISPLAY_MENU_LINE_Y,
+        line_buf,
+        s_display.menu_selected_index == 0 ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_WHITE,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    (void)snprintf(line_buf,
+                   sizeof(line_buf),
+                   "%s%s",
+                   s_display.menu_selected_index == 1 ? "> " : "  ",
+                   s_display.menu_line2);
+    ret = bsp_lcd_draw_string_scaled(
+        DISPLAY_MENU_LINE_X,
+        DISPLAY_MENU_LINE_Y + DISPLAY_MENU_LINE_STEP,
+        line_buf,
+        s_display.menu_selected_index == 1 ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_WHITE,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    (void)snprintf(line_buf,
+                   sizeof(line_buf),
+                   "%s%s",
+                   s_display.menu_selected_index == 2 ? "> " : "  ",
+                   s_display.menu_line3);
+    ret = bsp_lcd_draw_string_scaled(
+        DISPLAY_MENU_LINE_X,
+        DISPLAY_MENU_LINE_Y + DISPLAY_MENU_LINE_STEP * 2,
+        line_buf,
+        s_display.menu_selected_index == 2 ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_WHITE,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return bsp_lcd_draw_string_scaled(
+        DISPLAY_MENU_HINT_X,
+        DISPLAY_MENU_HINT_Y,
+        "K0< K1> K2OK K3BACK",
+        DISPLAY_COLOR_CYAN,
+        DISPLAY_COLOR_BLACK,
+        DISPLAY_TEXT_SCALE_SMALL);
 }
 
 /**
@@ -668,6 +771,13 @@ esp_err_t display_service_init(void)
     snprintf(s_display.version, sizeof(s_display.version), "%s", APP_PROJECT_VERSION);
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", APP_PROJECT_STAGE_NAME);
     snprintf(s_display.config_source, sizeof(s_display.config_source), "%s", "DEFAULT");
+    s_display.menu_visible = false;
+    s_display.menu_dirty = false;
+    snprintf(s_display.menu_title, sizeof(s_display.menu_title), "%s", "MENU");
+    snprintf(s_display.menu_line1, sizeof(s_display.menu_line1), "%s", "");
+    snprintf(s_display.menu_line2, sizeof(s_display.menu_line2), "%s", "");
+    snprintf(s_display.menu_line3, sizeof(s_display.menu_line3), "%s", "");
+    s_display.menu_selected_index = -1;
     s_display.beep_enabled = true;
     s_display.beep_test_mode = false;
     s_display.wifi_state = WIFI_STATE_IDLE;
@@ -865,6 +975,39 @@ esp_err_t display_service_show_ota_status(ota_state_t state, const char *message
     return ESP_OK;
 }
 
+esp_err_t display_service_show_menu_page(const char *title,
+                                         const char *line1,
+                                         const char *line2,
+                                         const char *line3,
+                                         int selected_index)
+{
+    if (!s_display.inited || title == NULL || line1 == NULL || line2 == NULL || line3 == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_display.menu_visible = true;
+    s_display.menu_dirty = true;
+    snprintf(s_display.menu_title, sizeof(s_display.menu_title), "%s", title);
+    snprintf(s_display.menu_line1, sizeof(s_display.menu_line1), "%s", line1);
+    snprintf(s_display.menu_line2, sizeof(s_display.menu_line2), "%s", line2);
+    snprintf(s_display.menu_line3, sizeof(s_display.menu_line3), "%s", line3);
+    s_display.menu_selected_index = selected_index;
+    return ESP_OK;
+}
+
+esp_err_t display_service_hide_menu(void)
+{
+    if (!s_display.inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_display.menu_visible = false;
+    s_display.menu_dirty = false;
+    s_display.menu_selected_index = -1;
+    display_service_mark_full_refresh();
+    return ESP_OK;
+}
+
 /**
  * @brief 按当前缓存内容重绘首页
  *
@@ -946,6 +1089,16 @@ esp_err_t display_service_refresh_home(void)
 void display_service_process(void)
 {
     if (!s_display.inited) {
+        return;
+    }
+
+    if (s_display.menu_visible) {
+        if (s_display.menu_dirty || s_display.full_refresh_pending) {
+            if (display_service_draw_menu_page() == ESP_OK) {
+                s_display.menu_dirty = false;
+                s_display.full_refresh_pending = false;
+            }
+        }
         return;
     }
 

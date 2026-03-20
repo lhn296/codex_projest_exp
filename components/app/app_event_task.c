@@ -5,6 +5,7 @@
 #include "beep_service.h"
 #include "display_service.h"
 #include "led_service.h"
+#include "menu_service.h"
 #include "esp_log.h"
 #include "freertos/task.h"
 
@@ -229,6 +230,11 @@ static void app_event_handle_button_message(const app_event_msg_t *msg)
 
     // 不管是业务键还是功能键，最近一次按键事件都同步到 LCD 首页。
     (void)display_service_show_last_button(button_id, button_event);
+
+    // 菜单模式下优先由菜单服务接管按键，避免继续触发原来的业务键/功能键逻辑。
+    if (menu_service_handle_button_event(button_id, button_event)) {
+        return;
+    }
 
     if (button_id == BTN_FUNC) {
         app_event_handle_function_button(button_event);

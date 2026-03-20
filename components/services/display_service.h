@@ -24,6 +24,14 @@ esp_err_t display_service_show_wifi_ip(const char *ip_string);
 esp_err_t display_service_show_wifi_signal(int rssi, uint8_t channel);
 esp_err_t display_service_show_http_result(bool success, int status_code, const char *message);
 esp_err_t display_service_show_ota_status(ota_state_t state, const char *message);
+// 显示一个全屏菜单覆盖页，title + 三行内容，selected_index 用于高亮当前项。
+esp_err_t display_service_show_menu_page(const char *title,
+                                         const char *line1,
+                                         const char *line2,
+                                         const char *line3,
+                                         int selected_index);
+// 关闭菜单覆盖页并恢复首页刷新。
+esp_err_t display_service_hide_menu(void);
 esp_err_t display_service_refresh_home(void);
 void display_service_process(void);
 

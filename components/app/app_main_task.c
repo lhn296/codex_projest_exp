@@ -9,6 +9,7 @@
 #include "display_service.h"
 #include "http_service.h"
 #include "led_service.h"
+#include "menu_service.h"
 #include "ota_service.h"
 #include "wifi_service.h"
 #include "esp_err.h"
@@ -173,6 +174,13 @@ static void app_main_task(void *param)
         return;
     }
 
+    ret = menu_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "menu_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
     // Wi-Fi 服务这版开始成为正式系统模块，后面的 HTTP / OTA / AI 都会建立在它之上。
     ret = wifi_service_init();
     if (ret != ESP_OK) {
@@ -237,6 +245,7 @@ static void app_main_task(void *param)
         button_service_process();
         display_service_process();
         config_cli_service_process();
+        menu_service_process();
         wifi_service_process();
         http_service_process();
         ota_service_process();

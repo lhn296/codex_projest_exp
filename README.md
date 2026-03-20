@@ -1,14 +1,14 @@
 # ESP32 Config Template
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA + NVS 配置化 + 配置状态可视化 + 串口配置增强` 的板载交互、显示、联网、云端版本检查、真实 OTA 升级与运行时配置管理模板练习。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA + NVS 配置化 + 配置状态可视化 + 串口配置增强 + 按键菜单模板` 的板载交互、显示、联网、云端版本检查、真实 OTA 升级与运行时配置管理模板练习。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
 - 显示名称：`ESP32 Config Template`
-- 当前版本：`v2.1.0`
+- 当前版本：`v2.2.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v2.1.0 Config Visualization & CLI Enhancement`
+- 当前阶段：`v2.2.0 Button Menu Template`
 
 当前行为：
 
@@ -23,6 +23,9 @@
 - 新增 `config_cli_service`，允许在 `idf.py monitor` 中通过 `cfg ...` 命令修改配置
 - LCD 项目区已增加 `CFG` 行，用于显示当前配置来源摘要
 - 串口配置入口已增加 `cfg status / cfg source / cfg test http / cfg test ota`
+- 已新增 `menu_service`，用于提供最小按键菜单状态机模板
+- 当前支持 `MENU HOME / MENU CONFIG / MENU ACTION` 三页
+- 当前支持菜单动作：`RESET_CFG / RELOAD_CFG / REBOOT`
 - 关键联网参数已经改成从运行时配置读取，而不是直接写死在业务服务里
 - 已增加坏 URL 基础校验与 NVS 异常值回退，避免错误地址刷屏
 

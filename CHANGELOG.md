@@ -14,6 +14,19 @@ All notable changes to this project will be documented in this file.
 - Changed `display_service` project info layout so version, stage, and config source can be shown together.
 - Changed `config_cli_service` so configuration changes, loads, and resets also refresh the LCD config-source summary.
 
+## v2.2.0 - 2026-03-20
+
+### Added
+- Added `menu_service` as a lightweight button-menu template layer.
+- Added three menu pages: `MENU HOME`, `MENU CONFIG`, and `MENU ACTION`.
+- Added menu actions: `RESET_CFG`, `RELOAD_CFG`, and `REBOOT`.
+- Added menu overlay drawing support in `display_service`.
+
+### Changed
+- Changed the project positioning from configuration visualization learning to button-menu template learning.
+- Changed `app_event_task` so menu mode can consume button events before legacy business actions.
+- Changed the LCD flow so menu content is rendered as a dedicated overlay page when menu mode is active.
+
 ## v2.0.0 - 2026-03-20
 
 ### Added

@@ -3,6 +3,7 @@ idf_component_register(
          "beep_service.c"
          "button_service.c"
          "display_service.c"
+         "menu_service.c"
          "config_service.c"
          "config_cli_service.c"
          "wifi_service.c"
