@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "config_service.h"
 #include "cJSON.h"
 #include "display_service.h"
 #include "esp_crt_bundle.h"
@@ -157,9 +158,12 @@ esp_err_t http_service_init(void)
         return ESP_OK;
     }
 
+    const app_runtime_config_t *cfg = config_service_get();
+    const char *http_url = (cfg != NULL) ? cfg->http_test_url : APP_HTTP_TEST_URL;
+
     http_service_set_result(false, 0, "IDLE");
     s_http.inited = true;
-    ESP_LOGI(TAG, "http service ready, url=%s timeout_ms=%d", APP_HTTP_TEST_URL, APP_HTTP_TIMEOUT_MS);
+    ESP_LOGI(TAG, "http service ready, url=%s timeout_ms=%d", http_url, APP_HTTP_TIMEOUT_MS);
     return ESP_OK;
 }
 
@@ -295,6 +299,9 @@ void http_service_process(void)
         return;
     }
 
+    const app_runtime_config_t *cfg = config_service_get();
+    const char *http_url = (cfg != NULL) ? cfg->http_test_url : APP_HTTP_TEST_URL;
+
     if (s_http.auto_request_done) {
         return;
     }
@@ -304,7 +311,12 @@ void http_service_process(void)
         return;
     }
 
-    if (http_service_request_get(APP_HTTP_TEST_URL) == ESP_OK) {
+    if (http_url[0] == '\0') {
+        http_service_set_result(false, 0, "URL_EMPTY");
+        return;
+    }
+
+    if (http_service_request_get(http_url) == ESP_OK) {
         s_http.auto_request_done = true;
     }
     // 如果请求失败了，保持 auto_request_done 仍然为 false，

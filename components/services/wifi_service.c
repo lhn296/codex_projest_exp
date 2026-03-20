@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "config_service.h"
 #include "display_service.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -51,6 +52,20 @@ static wifi_service_ctx_t s_wifi = {
     .last_disconnect_reason = 0,
     .last_ap_info_update_ms = 0,
 };
+
+static void wifi_service_copy_sta_string(uint8_t *dst, size_t dst_size, const char *src)
+{
+    if (dst == NULL || dst_size == 0) {
+        return;
+    }
+
+    size_t copy_len = 0;
+    if (src != NULL) {
+        copy_len = strnlen(src, dst_size - 1);
+        memcpy(dst, src, copy_len);
+    }
+    dst[copy_len] = '\0';
+}
 
 /**
  * @brief 把 Wi-Fi 状态枚举转成便于日志和 LCD 显示的文本
@@ -224,6 +239,10 @@ static void wifi_service_event_handler(void *arg, esp_event_base_t event_base, i
 static esp_err_t wifi_service_init_nvs(void)
 {
     esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
+        return ESP_OK;
+    }
+
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "nvs needs erase, ret=0x%x", ret);
         ret = nvs_flash_erase();
@@ -231,6 +250,9 @@ static esp_err_t wifi_service_init_nvs(void)
             return ret;
         }
         ret = nvs_flash_init();
+        if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
+            return ESP_OK;
+        }
     }
 
     return ret;
@@ -324,7 +346,11 @@ esp_err_t wifi_service_start(void)
         return ESP_ERR_INVALID_STATE;
     }
     // SSID 不能为空，后面如果做 NVS 配网，这里也可以改成“从 NVS 读取并校验”。
-    if (APP_WIFI_STA_SSID[0] == '\0') {
+    const app_runtime_config_t *cfg = config_service_get();
+    const char *wifi_ssid = (cfg != NULL) ? cfg->wifi_ssid : APP_WIFI_STA_SSID;
+    const char *wifi_password = (cfg != NULL) ? cfg->wifi_password : APP_WIFI_STA_PASSWORD;
+
+    if (wifi_ssid[0] == '\0') {
         ESP_LOGE(TAG, "wifi ssid is empty, please update APP_WIFI_STA_SSID");
         wifi_service_set_state(WIFI_STATE_ERROR); // 直接把状态置成 ERROR，后续如果有设置界面可以在里面提示用户去设置 Wi-Fi。
         return ESP_ERR_INVALID_ARG;
@@ -339,8 +365,8 @@ esp_err_t wifi_service_start(void)
     };
 
     // 这里把 app_config.h 里的 SSID 和密码拷进 Wi-Fi 配置结构，后面很适合替换成 NVS 读取。
-    (void)snprintf((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), "%s", APP_WIFI_STA_SSID);
-    (void)snprintf((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), "%s", APP_WIFI_STA_PASSWORD);
+    wifi_service_copy_sta_string(wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), wifi_ssid);
+    wifi_service_copy_sta_string(wifi_config.sta.password, sizeof(wifi_config.sta.password), wifi_password);
     
     // 把 SSID / 密码写入驱动，真正连接结果仍由事件系统异步返回。
     esp_err_t ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
@@ -362,7 +388,7 @@ esp_err_t wifi_service_start(void)
         s_wifi.started = true;
         // 启动成功后先切到 CONNECTING，等事件系统继续推进到 CONNECTED / GOT_IP。
         wifi_service_set_state(WIFI_STATE_CONNECTING);
-        ESP_LOGI(TAG, "wifi start requested, ssid=\"%s\"", APP_WIFI_STA_SSID);
+        ESP_LOGI(TAG, "wifi start requested, ssid=\"%s\"", wifi_ssid);
         return ESP_OK;
     }
     

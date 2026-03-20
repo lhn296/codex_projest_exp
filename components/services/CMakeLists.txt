@@ -3,6 +3,8 @@ idf_component_register(
          "beep_service.c"
          "button_service.c"
          "display_service.c"
+         "config_service.c"
+         "config_cli_service.c"
          "wifi_service.c"
          "http_service.c"
          "ota_service.c"
@@ -21,4 +23,5 @@ idf_component_register(
         app_update
         json
         mbedtls
+        esp_driver_uart
 )

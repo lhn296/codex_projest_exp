@@ -4,6 +4,8 @@
 #include "app_event_task.h"
 #include "beep_service.h"
 #include "button_service.h"
+#include "config_service.h"
+#include "config_cli_service.h"
 #include "display_service.h"
 #include "http_service.h"
 #include "led_service.h"
@@ -26,6 +28,8 @@ static QueueHandle_t s_button_event_queue = NULL;
  */
 static void app_main_task_log_gpio_mapping(void)
 {
+    const app_runtime_config_t *cfg = config_service_get();
+
     ESP_LOGI(TAG, "External LED mapping:");
     ESP_LOGI(TAG, "  SYS -> GPIO%d active_level=%d default_mode=%d",
              APP_SYS_LED_GPIO, APP_SYS_LED_ACTIVE_LEVEL, APP_LED_SYS_DEFAULT_MODE);
@@ -56,9 +60,12 @@ static void app_main_task_log_gpio_mapping(void)
 
     ESP_LOGI(TAG, "Wi-Fi config:");
     ESP_LOGI(TAG, "  SSID=\"%s\" max_retry=%d timeout_ms=%d",
-             APP_WIFI_STA_SSID[0] != '\0' ? APP_WIFI_STA_SSID : "<empty>",
+             (cfg != NULL && cfg->wifi_ssid[0] != '\0') ? cfg->wifi_ssid : "<empty>",
              APP_WIFI_MAX_RETRY,
              APP_WIFI_CONNECT_TIMEOUT_MS);
+    ESP_LOGI(TAG, "Cloud config:");
+    ESP_LOGI(TAG, "  HTTP test url=%s", cfg != NULL ? cfg->http_test_url : "<null>");
+    ESP_LOGI(TAG, "  OTA version url=%s", cfg != NULL ? cfg->ota_version_url : "<null>");
 }
 
 /**
@@ -136,6 +143,34 @@ static void app_main_task(void *param)
         return;
     }
 
+    ret = config_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "config_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ret = config_service_load();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "config_service_load failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ret = config_service_self_test();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "config_service_self_test failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ret = config_cli_service_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "config_cli_service_init failed, ret=0x%x", ret);
+        vTaskDelete(NULL);
+        return;
+    }
+
     // Wi-Fi 服务这版开始成为正式系统模块，后面的 HTTP / OTA / AI 都会建立在它之上。
     ret = wifi_service_init();
     if (ret != ESP_OK) {
@@ -199,6 +234,7 @@ static void app_main_task(void *param)
         beep_service_process();
         button_service_process();
         display_service_process();
+        config_cli_service_process();
         wifi_service_process();
         http_service_process();
         ota_service_process();

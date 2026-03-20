@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v2.0.0 - 2026-03-20
+
+### Added
+- Added `config_service` with runtime config structure, default-value loading, NVS save/load, reset-to-default, and self-test flow.
+- Added `config_cli_service` so configuration can be viewed and modified through `idf.py monitor` with `cfg ...` commands.
+- Added bad-URL protection, including basic URL validation before save and fallback-to-default on invalid NVS URL values.
+
+### Changed
+- Changed the project positioning from real OTA upgrade learning to device configuration foundation learning.
+- Changed `wifi_service`, `http_service`, and `ota_service` to read key runtime parameters from `config_service` instead of directly from fixed macros.
+- Changed OTA version comparison from simple string inequality to semantic numeric comparison for `vX.Y.Z`.
+
 ## v1.9.0 - 2026-03-19
 
 ### Added

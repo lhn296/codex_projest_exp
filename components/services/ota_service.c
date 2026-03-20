@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "config_service.h"
 #include "cJSON.h"
 #include "display_service.h"
 #include "esp_crt_bundle.h"
@@ -158,9 +159,12 @@ static const char *ota_service_state_to_string(ota_state_t state)
 /**
  * @brief 比较当前版本与目标版本
  *
- * 当前先采用最简单的字符串比较规则：
- * 只要目标版本与当前版本不同，就认为“存在新版本”。
- * 这样更适合当前学习阶段，后面再升级成更严格的语义版本比较。
+ * 当前采用最常见的主版本.次版本.补丁版本比较规则：
+ * 例如：
+ * - v1.9.1 < v2.0.0
+ * - v2.0.0 > v1.9.1
+ *
+ * 只有目标版本真正比当前版本更高时，才认为“存在新版本”。
  */
 static bool ota_service_compare_version(const char *current_version, const char *target_version)
 {
@@ -168,7 +172,42 @@ static bool ota_service_compare_version(const char *current_version, const char 
         return false;
     }
 
-    return strcmp(current_version, target_version) != 0;
+    int current_major = 0;
+    int current_minor = 0;
+    int current_patch = 0;
+    int target_major = 0;
+    int target_minor = 0;
+    int target_patch = 0;
+
+    int current_count = sscanf(current_version, "v%d.%d.%d", &current_major, &current_minor, &current_patch);
+    if (current_count != 3) {
+        current_count = sscanf(current_version, "%d.%d.%d", &current_major, &current_minor, &current_patch);
+    }
+
+    int target_count = sscanf(target_version, "v%d.%d.%d", &target_major, &target_minor, &target_patch);
+    if (target_count != 3) {
+        target_count = sscanf(target_version, "%d.%d.%d", &target_major, &target_minor, &target_patch);
+    }
+
+    // 如果版本字符串不符合预期格式，回退成保守策略：只在完全不相等时提示，但打日志提醒后续修正。
+    if (current_count != 3 || target_count != 3) {
+        ESP_LOGW(TAG, "version parse fallback, current=%s target=%s", current_version, target_version);
+        return strcmp(current_version, target_version) != 0;
+    }
+
+    if (target_major != current_major) {
+        return target_major > current_major;
+    }
+
+    if (target_minor != current_minor) {
+        return target_minor > current_minor;
+    }
+
+    if (target_patch != current_patch) {
+        return target_patch > current_patch;
+    }
+
+    return false;
 }
 
 /**
@@ -342,12 +381,20 @@ static esp_err_t ota_service_download_and_apply(void)
  */
 static void ota_service_check_once(void)
 {
+    const app_runtime_config_t *cfg = config_service_get();
+    const char *version_url = (cfg != NULL) ? cfg->ota_version_url : APP_OTA_VERSION_URL;
+
     // 先记录本次检查时间，并把状态切到 CHECK，便于日志和屏幕同步显示。
     s_ota.last_check_time_ms = esp_timer_get_time() / 1000;
     ota_service_set_state(OTA_STATE_CHECK, "CHECK");
 
+    if (version_url[0] == '\0') {
+        ota_service_set_state(OTA_STATE_FAIL, "URL_EMPTY");
+        return;
+    }
+
     // 先访问真实云端版本接口，后面再从响应正文中解析 OTA 元数据。
-    esp_err_t ret = http_service_request_get(APP_OTA_VERSION_URL);
+    esp_err_t ret = http_service_request_get(version_url);
     s_ota.last_http_status_code = http_service_get_status_code();
     if (ret != ESP_OK || !http_service_is_success()) {
         ota_service_set_state(OTA_STATE_FAIL, "HTTP_FAIL");
@@ -402,6 +449,9 @@ esp_err_t ota_service_init(void)
         return ESP_OK;
     }
 
+    const app_runtime_config_t *cfg = config_service_get();
+    const char *version_url = (cfg != NULL) ? cfg->ota_version_url : APP_OTA_VERSION_URL;
+
     // 检查前默认把目标版本设成当前版本，避免未初始化时显示脏值。
     snprintf(s_ota.target_version, sizeof(s_ota.target_version), "%s", APP_PROJECT_VERSION);
     snprintf(s_ota.firmware_url, sizeof(s_ota.firmware_url), "%s", "");
@@ -411,7 +461,7 @@ esp_err_t ota_service_init(void)
     ESP_LOGI(TAG, "ota service ready, auto_check=%d auto_upgrade=%d version_url=%s",
              APP_OTA_AUTO_CHECK,
              APP_OTA_AUTO_UPGRADE,
-             APP_OTA_VERSION_URL);
+             version_url);
     return ESP_OK;
 }
 

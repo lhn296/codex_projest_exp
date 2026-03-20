@@ -1,42 +1,28 @@
-# ESP32 Real OTA Template
+# ESP32 Config Template
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA` 的板载交互、显示、联网、云端版本检查与真实 OTA 升级模板练习，并继续复用现有统一事件架构。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA + NVS 配置化` 的板载交互、显示、联网、云端版本检查、真实 OTA 升级与运行时配置管理模板练习。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
-- 显示名称：`ESP32 Real OTA Template`
-- 当前版本：`v1.9.0`
+- 显示名称：`ESP32 Config Template`
+- 当前版本：`v2.0.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v1.9.0 Real OTA Upgrade`
+- 当前阶段：`v2.0.0 Device Config Foundation`
 
 当前行为：
 
 - 使用 `I2C0` 驱动 `XL9555`
 - 使用 `XL9555` 读取 `KEY0 ~ KEY3` 板载按键输入
 - 使用 `XL9555 INT -> ESP32 GPIO39` 触发按键处理
-- 新增 `SPI` 通用总线模板
-- 新增 `lcd_st7789v` 显示驱动模板
-- 新增 `bsp_lcd` 板级显示适配层
-- 新增 `display_service` 显示服务层
-- 引入 `FreeRTOS Queue` 传递按键事件
-- 新增 `app_event_task` 处理业务事件
-- 统一队列消息结构为通用事件格式
-- 主循环负责按键状态机、LED、蜂鸣器、显示、Wi-Fi、HTTP 与 OTA 服务推进
-- `KEY0 ~ KEY2` 映射到三路 LED 业务
-- `KEY3` 作为板载功能键
-- 新增 `beep_service`，支持基础蜂鸣反馈和测试模式
-- 新增 LCD 首页显示版本、阶段、LED 状态、蜂鸣器状态、Wi-Fi 状态、IP 信息、HTTP 状态和 OTA 状态
-- 首页显示服务已升级为分区布局，支持局部区域刷新
-- 新增 `wifi_service`，用于 Wi-Fi 初始化、联网状态管理和 IP 获取
-- 新增 `http_service`，用于基础 `HTTP GET` 请求、完整响应体缓存和 JSON 解析
-- 新增 `ota_service` 云端版本检查链路，支持从真实版本接口获取 `version / url / message`
-- 新增 HTTPS 证书包挂接，支持访问通用 HTTPS JSON 接口
-- 当前已切到 `Two OTA Large` 分区方案，为真实 OTA 预留双 OTA 分区空间
-- 新增真实 OTA 下载与写分区主链，支持 `esp_ota_begin -> esp_ota_write -> esp_ota_end -> esp_ota_set_boot_partition`
-- OTA 状态新增 `VERIFY`
-- 支持按键消抖、单击、长按、双击三种手势
-- 新增可复用的 `i2c_bus`、`xl9555`、`spi_bus`、`lcd_st7789v`、`wifi_service`、`http_service`、`ota_service` 模板
+- 使用 `SPI` 驱动 `ST7789V` LCD，并显示首页状态
+- 主循环统一推进 `LED / BEEP / BTN / DISPLAY / WIFI / HTTP / OTA / CONFIG_CLI`
+- 已具备真实 `Wi-Fi -> HTTP -> JSON -> OTA` 升级主链
+- 已切到 `Two OTA Large` 分区方案
+- 新增 `config_service`，用于统一维护运行时配置
+- 新增 `config_cli_service`，允许在 `idf.py monitor` 中通过 `cfg ...` 命令修改配置
+- 关键联网参数已经改成从运行时配置读取，而不是直接写死在业务服务里
+- 已增加坏 URL 基础校验与 NVS 异常值回退，避免错误地址刷屏
 
 默认 LED 模式：
 
@@ -48,7 +34,7 @@
 
 - `main/`：程序入口，只负责打印启动信息并启动应用任务
 - `components/app/`：应用编排层，负责初始化服务和主循环调度
-- `components/services/`：业务服务层，负责 LED、蜂鸣器、显示、Wi-Fi、HTTP 与 OTA 状态管理
+- `components/services/`：业务服务层，负责 LED、蜂鸣器、显示、Wi-Fi、HTTP、OTA、配置与串口配置入口
 - `components/bsp/`：板级支持层，负责 GPIO、I2C、XL9555 与硬件读写
 - `components/driver/`：通用驱动层，负责 `i2c_bus`、`spi_bus`、`xl9555`、`lcd_st7789v`
 - `components/system/`：系统配置与公共类型定义
@@ -106,31 +92,64 @@
 | `LCD_CTRL0` | `IO1_3` |
 | `LCD_CTRL1` | `IO1_2` |
 
-说明：
+## 当前配置体系
 
-- 板载按键通过 `XL9555` 读取，按下为低电平有效。
-- `KEY3` 作为功能键，用于控制蜂鸣器提示使能和测试模式。
-- 当前版本默认把 `GPIO13` 按 LCD 的 `DC/WR` 控制脚使用，而不是读回 `MISO`。
-- 如果板级接法变化，优先修改 `components/system/app_config.h` 中的 `I2C / XL9555 / LCD / OTA` 配置。
+本版开始把项目里的关键联网参数拆成两层：
 
-## 关键配置入口
+### 1. `app_config.h`
 
-以下模板级参数已经集中在 `components/system/app_config.h`：
+负责：
 
-- 项目名、显示名、版本号、目标芯片
-- 任务名、任务栈大小、任务优先级、主循环周期
-- 三路 LED 的 GPIO、有效电平、默认上电状态、默认模式
-- `I2C` 总线配置、`XL9555` 地址、板级引脚映射
-- `SPI` 总线、LCD 分辨率、LCD 控制引脚配置
-- `Wi-Fi STA` 配置与联网重试参数
-- `HTTP` 的测试 URL、请求超时和自动请求配置
-- `OTA` 的版本接口地址、自动检查开关、自动升级开关、写入缓冲大小
+- 提供默认值
+- 提供编译期常量
+
+### 2. `config_service`
+
+负责：
+
+- 运行时配置缓存
+- 从 NVS 加载保存值
+- 保存当前配置
+- 恢复默认值
+
+当前纳入运行时配置的字段：
+
+- `wifi_ssid`
+- `wifi_password`
+- `http_test_url`
+- `ota_version_url`
+
+## 串口配置入口
+
+本版新增 `config_cli_service`，可以在 `idf.py monitor` 中直接输入：
+
+```text
+cfg help
+cfg show
+cfg set wifi <ssid> <password>
+cfg set http <url>
+cfg set ota <url>
+cfg save
+cfg load
+cfg reset
+cfg reboot
+```
+
+当前行为规则：
+
+- `cfg set ...`
+  - 只修改当前运行时配置
+- `cfg save`
+  - 才真正写入 NVS
+- `cfg reboot`
+  - 重启后重新从 NVS 加载
 
 ## 当前说明
 
-- 当前默认配置仍保持 `APP_OTA_AUTO_UPGRADE = 0`，也就是上电后默认只做云端版本检查，不会直接开始真实升级。
-- 当前版本已经具备真实 OTA 下载和写分区主链，但只有在云端 `url` 指向真实可访问的 `.bin` 固件地址时，真实升级才有意义。
-- 真正上板验证完整 OTA 升级前，建议先准备一份可公网访问的真实 `.bin` 固件地址。
+- 当前默认保持 `APP_OTA_AUTO_UPGRADE = 0`
+- 当前设备配置化已经完成第一轮基础验证
+- 当前 OTA 版本比较已改成按 `vX.Y.Z` 数字比较
+- 当前串口配置入口已经可用，并已验证 `show / set / save / reboot`
 
 ## 开发与验证
 
@@ -145,26 +164,21 @@ idf.py -p COM3 monitor
 串口日志中应看到：
 
 - 统一的项目显示名称、版本号与学习阶段
-- `app_main_task` 创建成功
-- LED、蜂鸣器、显示、Wi-Fi、HTTP、OTA 与按键服务初始化成功
-- 当前 `I2C / XL9555`、LCD / SPI、Wi-Fi、HTTP、OTA 配置打印完成
-- 当前 `HTTP` 请求结果和 JSON 解析摘要打印完成
-- 当前 `OTA` 云端版本检查结果打印完成
-- 当开启真实升级时，还会看到下载、写入、切换启动分区和重启流程日志
+- `config_service` 初始化成功
+- `config self-test passed`
+- `config self-test reset_to_default passed`
+- `config self-test restore done`
+- `config cli ready, type 'cfg help' in monitor`
+- `wifi/http/ota` 从运行时配置读取参数
 
-上板验证建议：
+建议验证：
 
-1. 上电后观察 `SYS` 慢闪、`NET` 快闪、`ERR` 熄灭。
-2. 单击 `KEY0 ~ KEY2`，确认对应 LED 在四种模式间循环，并伴随蜂鸣提示。
-3. 长按 `KEY0 ~ KEY2` 约 `0.8s`，确认对应 LED 无论当前状态如何都直接关闭。
-4. 快速双击 `KEY0 ~ KEY2`，确认对应 LED 无论当前状态如何都直接进入快闪。
-5. 单击 `KEY3`，确认蜂鸣器提示使能状态切换。
-6. 双击 `KEY3`，确认蜂鸣器测试模式切换。
-7. 观察 LCD 首页，确认版本号、阶段名、LED 状态、蜂鸣器状态、Wi-Fi 状态、HTTP 状态和 OTA 状态会刷新。
-8. 如果 `SSID` 和密码配置正确，观察串口日志和 LCD，确认能看到 `CONNECTING -> CONNECTED -> GOT_IP` 的状态变化。
-9. 观察设备是否自动发起一次 HTTP 请求，并在 LCD 上显示 `HTTP / CODE / MSG`。
-10. 观察 OTA 区域，确认云端版本检查后能看到 `CHECK / READY / NO_UPDATE / FAIL`。
-11. 如果后续开启 `APP_OTA_AUTO_UPGRADE = 1` 且云端 `url` 指向真实可下载固件，观察串口日志是否进入 `DOWNLOADING -> VERIFY -> SUCCESS -> REBOOTING`。
+1. 输入 `cfg show`，确认当前配置正确显示
+2. 输入 `cfg set http https://httpbin.org/json`
+3. 输入 `cfg save`
+4. 输入 `cfg reboot`
+5. 重启后再次 `cfg show`，确认配置仍然保留
+6. 如果输入明显不合理的 URL，确认系统会拒绝或自动回退默认值，不再刷屏
 
 ## 发布与维护
 
@@ -177,7 +191,7 @@ idf.py -p COM3 monitor
 ```powershell
 git status
 git add CHANGELOG.md README.md components/system/app_config.h
-git commit -m "chore: align template metadata and docs"
+git commit -m "chore: release vX.Y.Z"
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin main
 git push origin vX.Y.Z
