@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v2.1.0 - 2026-03-20
+
+### Added
+- Added LCD config-source visualization so the project info area can display `CFG : DEFAULT / NVS / MIXED / RUNTIME`.
+- Added CLI enhancement commands: `cfg status`, `cfg source`, `cfg test http`, and `cfg test ota`.
+- Added `ota_service_check_now()` so OTA version checking can be triggered manually from the CLI.
+
+### Changed
+- Changed the project positioning from device configuration foundation to configuration visualization and CLI enhancement learning.
+- Changed `display_service` project info layout so version, stage, and config source can be shown together.
+- Changed `config_cli_service` so configuration changes, loads, and resets also refresh the LCD config-source summary.
+
 ## v2.0.0 - 2026-03-20
 
 ### Added

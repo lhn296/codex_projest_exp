@@ -379,7 +379,7 @@ static esp_err_t ota_service_download_and_apply(void)
  * 4. 如果发现新版本，则进入 READY
  * 5. 如果开启自动升级，则继续执行真实 OTA 下载与切换主链
  */
-static void ota_service_check_once(void)
+static esp_err_t ota_service_check_once(void)
 {
     const app_runtime_config_t *cfg = config_service_get();
     const char *version_url = (cfg != NULL) ? cfg->ota_version_url : APP_OTA_VERSION_URL;
@@ -390,7 +390,7 @@ static void ota_service_check_once(void)
 
     if (version_url[0] == '\0') {
         ota_service_set_state(OTA_STATE_FAIL, "URL_EMPTY");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
 
     // 先访问真实云端版本接口，后面再从响应正文中解析 OTA 元数据。
@@ -401,7 +401,7 @@ static void ota_service_check_once(void)
         ESP_LOGE(TAG, "ota version request failed, ret=0x%x status=%d",
                  ret,
                  s_ota.last_http_status_code);
-        return;
+        return ret != ESP_OK ? ret : ESP_FAIL;
     }
 
     // 云端版本接口返回的正文继续交给 OTA 层解析，这样 OTA 能直接消费 version/url/message。
@@ -409,7 +409,7 @@ static void ota_service_check_once(void)
     if (ret != ESP_OK) {
         ota_service_set_state(OTA_STATE_FAIL, "JSON_FAIL");
         ESP_LOGE(TAG, "ota cloud payload parse failed, ret=0x%x", ret);
-        return;
+        return ret;
     }
 
     // 当前阶段先采用最简单规则：目标版本和当前版本不同，就认为存在更新。
@@ -418,7 +418,7 @@ static void ota_service_check_once(void)
         // 没有新版本时直接回到 IDLE / NO_UPDATE，不进入 READY。
         ota_service_set_state(OTA_STATE_IDLE, "NO_UPDATE");
         ESP_LOGI(TAG, "ota no update, current=%s target=%s", APP_PROJECT_VERSION, s_ota.target_version);
-        return;
+        return ESP_OK;
     }
 
     // 检测到新版本后进入 READY，优先显示云端 message，没有 message 时再回退版本号。
@@ -431,8 +431,10 @@ static void ota_service_check_once(void)
 
     if (APP_OTA_AUTO_UPGRADE) {
         // 开启自动升级后，直接进入真实下载与切换链。
-        (void)ota_service_download_and_apply();
+        return ota_service_download_and_apply();
     }
+
+    return ESP_OK;
 }
 
 /**
@@ -494,7 +496,7 @@ void ota_service_process(void)
     }
 
     // 到这里说明联网和 HTTP 基础都准备好了，可以执行一次 OTA 检查。
-    ota_service_check_once();
+    (void)ota_service_check_once();
     s_ota.checked_once = true;
 }
 
@@ -528,4 +530,21 @@ const char *ota_service_get_message(void)
 bool ota_service_has_update(void)
 {
     return s_ota.has_update;
+}
+
+esp_err_t ota_service_check_now(void)
+{
+    if (!s_ota.inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (wifi_service_get_state() != WIFI_STATE_GOT_IP) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!http_service_is_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return ota_service_check_once();
 }

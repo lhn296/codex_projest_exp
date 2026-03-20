@@ -15,13 +15,13 @@ extern "C" {
  * ========================= */
 #define APP_PROJECT_NAME                  "codex_project_tep"
 #define APP_PROJECT_DISPLAY_NAME          "ESP32 Config Template"
-#define APP_PROJECT_VERSION               "v2.0.0"
+#define APP_PROJECT_VERSION               "v2.1.0"
 #define APP_PROJECT_TARGET                "ESP32-S3"
 
 /* =========================
  * 当前学习阶段说明
  * ========================= */
-#define APP_PROJECT_STAGE_NAME            "v2.0.0 Device Config Foundation"
+#define APP_PROJECT_STAGE_NAME            "v2.1.0 Config Visualization & CLI Enhancement"
 
 /* =========================
  * SYS LED 配置

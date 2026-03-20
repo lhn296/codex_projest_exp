@@ -7,10 +7,13 @@
 #include <unistd.h>
 
 #include "config_service.h"
+#include "display_service.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_vfs_dev.h"
+#include "http_service.h"
+#include "ota_service.h"
 
 static const char *TAG = "CFG_CLI";
 
@@ -37,9 +40,13 @@ static void config_cli_service_log_help(void)
 {
     ESP_LOGI(TAG, "cfg help");
     ESP_LOGI(TAG, "cfg show");
+    ESP_LOGI(TAG, "cfg status");
+    ESP_LOGI(TAG, "cfg source");
     ESP_LOGI(TAG, "cfg set wifi <ssid> <password>");
     ESP_LOGI(TAG, "cfg set http <url>");
     ESP_LOGI(TAG, "cfg set ota <url>");
+    ESP_LOGI(TAG, "cfg test http");
+    ESP_LOGI(TAG, "cfg test ota");
     ESP_LOGI(TAG, "cfg save");
     ESP_LOGI(TAG, "cfg load");
     ESP_LOGI(TAG, "cfg reset");
@@ -85,6 +92,45 @@ static void config_cli_service_log_current_config(void)
 }
 
 /**
+ * @brief 打印当前配置来源
+ */
+static void config_cli_service_log_config_source(void)
+{
+    ESP_LOGI(TAG, "config source:");
+    ESP_LOGI(TAG, "  summary=%s", config_service_get_source_summary());
+    ESP_LOGI(TAG, "  wifi=%s", config_service_source_to_string(config_service_get_wifi_source()));
+    ESP_LOGI(TAG, "  http=%s", config_service_source_to_string(config_service_get_http_source()));
+    ESP_LOGI(TAG, "  ota=%s", config_service_source_to_string(config_service_get_ota_source()));
+}
+
+/**
+ * @brief 把当前配置来源同步到 LCD
+ */
+static void config_cli_service_sync_display_source(void)
+{
+    (void)display_service_show_config_source(config_service_get_source_summary());
+}
+
+/**
+ * @brief 打印当前配置与服务状态摘要
+ */
+static void config_cli_service_log_status(void)
+{
+    config_cli_service_log_current_config();
+    config_cli_service_log_config_source();
+    ESP_LOGI(TAG, "service status:");
+    ESP_LOGI(TAG, "  http_ready=%d success=%d status=%d msg=%s",
+             http_service_is_ready(),
+             http_service_is_success(),
+             http_service_get_status_code(),
+             http_service_get_message());
+    ESP_LOGI(TAG, "  ota_state=%d has_update=%d msg=%s",
+             ota_service_get_state(),
+             ota_service_has_update(),
+             ota_service_get_message());
+}
+
+/**
  * @brief 解析并执行一整行 cfg 命令
  *
  * 整个流程是：
@@ -124,9 +170,20 @@ static void config_cli_service_execute_line(char *line)
         return;
     }
 
+    if (strcmp(argv[1], "status") == 0) {
+        config_cli_service_log_status();
+        return;
+    }
+
+    if (strcmp(argv[1], "source") == 0) {
+        config_cli_service_log_config_source();
+        return;
+    }
+
     if (strcmp(argv[1], "save") == 0) {
         esp_err_t ret = config_service_save();
         if (ret == ESP_OK) {
+            config_cli_service_sync_display_source();
             ESP_LOGI(TAG, "cfg save ok");
         } else {
             ESP_LOGE(TAG, "cfg save failed, ret=0x%x", ret);
@@ -137,6 +194,7 @@ static void config_cli_service_execute_line(char *line)
     if (strcmp(argv[1], "load") == 0) {
         esp_err_t ret = config_service_load();
         if (ret == ESP_OK) {
+            config_cli_service_sync_display_source();
             ESP_LOGI(TAG, "cfg load ok");
             config_cli_service_log_current_config();
         } else {
@@ -151,6 +209,7 @@ static void config_cli_service_execute_line(char *line)
             ret = config_service_load();
         }
         if (ret == ESP_OK) {
+            config_cli_service_sync_display_source();
             ESP_LOGI(TAG, "cfg reset ok");
             config_cli_service_log_current_config();
         } else {
@@ -169,6 +228,7 @@ static void config_cli_service_execute_line(char *line)
         if (argc >= 5 && strcmp(argv[2], "wifi") == 0) {
             esp_err_t ret = config_service_set_wifi(argv[3], argv[4]);
             if (ret == ESP_OK) {
+                config_cli_service_sync_display_source();
                 ESP_LOGI(TAG, "cfg set wifi ok, save/reboot to apply");
             } else {
                 ESP_LOGE(TAG, "cfg set wifi failed, ret=0x%x", ret);
@@ -179,6 +239,7 @@ static void config_cli_service_execute_line(char *line)
         if (argc >= 4 && strcmp(argv[2], "http") == 0) {
             esp_err_t ret = config_service_set_urls(argv[3], NULL);
             if (ret == ESP_OK) {
+                config_cli_service_sync_display_source();
                 ESP_LOGI(TAG, "cfg set http ok, save/reboot to apply");
             } else {
                 ESP_LOGE(TAG, "cfg set http failed, ret=0x%x", ret);
@@ -189,10 +250,39 @@ static void config_cli_service_execute_line(char *line)
         if (argc >= 4 && strcmp(argv[2], "ota") == 0) {
             esp_err_t ret = config_service_set_urls(NULL, argv[3]);
             if (ret == ESP_OK) {
+                config_cli_service_sync_display_source();
                 ESP_LOGI(TAG, "cfg set ota ok, save/reboot to apply");
             } else {
                 ESP_LOGE(TAG, "cfg set ota failed, ret=0x%x", ret);
             }
+            return;
+        }
+    }
+
+    if (strcmp(argv[1], "test") == 0 && argc >= 3) {
+        const app_runtime_config_t *cfg = config_service_get();
+        if (cfg == NULL) {
+            ESP_LOGW(TAG, "config is null");
+            return;
+        }
+
+        if (strcmp(argv[2], "http") == 0) {
+            esp_err_t ret = http_service_request_get(cfg->http_test_url);
+            ESP_LOGI(TAG, "cfg test http ret=0x%x success=%d status=%d msg=%s",
+                     ret,
+                     http_service_is_success(),
+                     http_service_get_status_code(),
+                     http_service_get_message());
+            return;
+        }
+
+        if (strcmp(argv[2], "ota") == 0) {
+            esp_err_t ret = ota_service_check_now();
+            ESP_LOGI(TAG, "cfg test ota ret=0x%x state=%d has_update=%d msg=%s",
+                     ret,
+                     ota_service_get_state(),
+                     ota_service_has_update(),
+                     ota_service_get_message());
             return;
         }
     }

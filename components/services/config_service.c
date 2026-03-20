@@ -15,12 +15,18 @@ typedef struct {
     bool inited;                  // 配置服务是否已初始化。
     bool loaded;                  // 当前配置是否已从默认值或 NVS 加载完成。
     app_runtime_config_t runtime; // 当前生效的运行时配置。
+    config_value_source_t wifi_source; // 当前 Wi-Fi 参数来源。
+    config_value_source_t http_source; // 当前 HTTP URL 来源。
+    config_value_source_t ota_source;  // 当前 OTA URL 来源。
 } config_service_ctx_t;
 
 static config_service_ctx_t s_config = {
     .inited = false,
     .loaded = false,
     .runtime = {{0}},
+    .wifi_source = CONFIG_VALUE_SOURCE_DEFAULT,
+    .http_source = CONFIG_VALUE_SOURCE_DEFAULT,
+    .ota_source = CONFIG_VALUE_SOURCE_DEFAULT,
 };
 
 static void config_service_copy_string(char *dst, size_t dst_size, const char *src)
@@ -98,6 +104,13 @@ static void config_service_load_default(app_runtime_config_t *cfg)
     config_service_copy_string(cfg->ota_version_url, sizeof(cfg->ota_version_url), APP_OTA_VERSION_URL);
 }
 
+static void config_service_mark_default_sources(void)
+{
+    s_config.wifi_source = CONFIG_VALUE_SOURCE_DEFAULT;
+    s_config.http_source = CONFIG_VALUE_SOURCE_DEFAULT;
+    s_config.ota_source = CONFIG_VALUE_SOURCE_DEFAULT;
+}
+
 static esp_err_t config_service_init_nvs(void)
 {
     esp_err_t ret = nvs_flash_init();
@@ -142,6 +155,7 @@ esp_err_t config_service_init(void)
     }
 
     config_service_load_default(&s_config.runtime); //  先加载默认配置，后续 load 时会覆盖为 NVS 中的值（如果存在）。
+    config_service_mark_default_sources();
     s_config.inited = true;
     ESP_LOGI(TAG, "config service ready");
     return ESP_OK;
@@ -154,6 +168,7 @@ esp_err_t config_service_load(void)
     }
 
     config_service_load_default(&s_config.runtime);// 先加载默认配置，后续覆盖为 NVS 中的值（如果存在）。
+    config_service_mark_default_sources();
 
     nvs_handle_t handle = 0;
     esp_err_t ret = nvs_open(APP_CFG_NAMESPACE, NVS_READWRITE, &handle);// 尝试打开配置命名空间，如果不存在会返回 ESP_ERR_NVS_NOT_FOUND，此时直接使用默认配置继续。
@@ -165,21 +180,43 @@ esp_err_t config_service_load(void)
     }
 
     // 从 NVS 中加载配置项，失败时保留默认值继续。
-    config_service_try_load_str(handle, "wifi_ssid", s_config.runtime.wifi_ssid, sizeof(s_config.runtime.wifi_ssid));
-    config_service_try_load_str(handle, "wifi_pwd", s_config.runtime.wifi_password, sizeof(s_config.runtime.wifi_password));
-    config_service_try_load_str(handle, "http_url", s_config.runtime.http_test_url, sizeof(s_config.runtime.http_test_url));
-    config_service_try_load_str(handle, "ota_url", s_config.runtime.ota_version_url, sizeof(s_config.runtime.ota_version_url));
+    {
+        size_t len = sizeof(s_config.runtime.wifi_ssid);
+        if (nvs_get_str(handle, "wifi_ssid", s_config.runtime.wifi_ssid, &len) == ESP_OK) {
+            s_config.wifi_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+    }
+    {
+        size_t len = sizeof(s_config.runtime.wifi_password);
+        if (nvs_get_str(handle, "wifi_pwd", s_config.runtime.wifi_password, &len) == ESP_OK) {
+            s_config.wifi_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+    }
+    {
+        size_t len = sizeof(s_config.runtime.http_test_url);
+        if (nvs_get_str(handle, "http_url", s_config.runtime.http_test_url, &len) == ESP_OK) {
+            s_config.http_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+    }
+    {
+        size_t len = sizeof(s_config.runtime.ota_version_url);
+        if (nvs_get_str(handle, "ota_url", s_config.runtime.ota_version_url, &len) == ESP_OK) {
+            s_config.ota_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+    }
 
     nvs_close(handle);// 关闭 NVS 句柄。
 
     if (!config_service_url_is_basic_valid(s_config.runtime.http_test_url)) {
         ESP_LOGW(TAG, "invalid http_url in NVS, fallback to default");
         config_service_copy_string(s_config.runtime.http_test_url, sizeof(s_config.runtime.http_test_url), APP_HTTP_TEST_URL);
+        s_config.http_source = CONFIG_VALUE_SOURCE_DEFAULT;
     }
 
     if (!config_service_url_is_basic_valid(s_config.runtime.ota_version_url)) {
         ESP_LOGW(TAG, "invalid ota_url in NVS, fallback to default");
         config_service_copy_string(s_config.runtime.ota_version_url, sizeof(s_config.runtime.ota_version_url), APP_OTA_VERSION_URL);
+        s_config.ota_source = CONFIG_VALUE_SOURCE_DEFAULT;
     }
 
     s_config.loaded = true;
@@ -220,6 +257,15 @@ esp_err_t config_service_save(void)
     nvs_close(handle);// 关闭 NVS 句柄。
 
     if (ret == ESP_OK) {
+        if (s_config.wifi_source == CONFIG_VALUE_SOURCE_RUNTIME) {
+            s_config.wifi_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+        if (s_config.http_source == CONFIG_VALUE_SOURCE_RUNTIME) {
+            s_config.http_source = CONFIG_VALUE_SOURCE_NVS;
+        }
+        if (s_config.ota_source == CONFIG_VALUE_SOURCE_RUNTIME) {
+            s_config.ota_source = CONFIG_VALUE_SOURCE_NVS;
+        }
         ESP_LOGI(TAG, "config saved");
     }
 
@@ -241,6 +287,68 @@ const app_runtime_config_t *config_service_get(void)
     return &s_config.runtime;
 }
 
+config_value_source_t config_service_get_wifi_source(void)
+{
+    return s_config.wifi_source;
+}
+
+config_value_source_t config_service_get_http_source(void)
+{
+    return s_config.http_source;
+}
+
+config_value_source_t config_service_get_ota_source(void)
+{
+    return s_config.ota_source;
+}
+
+const char *config_service_source_to_string(config_value_source_t source)
+{
+    switch (source) {
+        case CONFIG_VALUE_SOURCE_DEFAULT:
+            return "DEFAULT";
+        case CONFIG_VALUE_SOURCE_NVS:
+            return "NVS";
+        case CONFIG_VALUE_SOURCE_RUNTIME:
+            return "RUNTIME";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+const char *config_service_get_source_summary(void)
+{
+    bool has_default = false;
+    bool has_nvs = false;
+    bool has_runtime = false;
+    config_value_source_t sources[] = {
+        s_config.wifi_source,
+        s_config.http_source,
+        s_config.ota_source,
+    };
+
+    for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); ++i) {
+        if (sources[i] == CONFIG_VALUE_SOURCE_DEFAULT) {
+            has_default = true;
+        } else if (sources[i] == CONFIG_VALUE_SOURCE_NVS) {
+            has_nvs = true;
+        } else if (sources[i] == CONFIG_VALUE_SOURCE_RUNTIME) {
+            has_runtime = true;
+        }
+    }
+
+    if (has_runtime && !has_default && !has_nvs) {
+        return "RUNTIME";
+    }
+    if (has_default && !has_nvs && !has_runtime) {
+        return "DEFAULT";
+    }
+    if (has_nvs && !has_default && !has_runtime) {
+        return "NVS";
+    }
+    return "MIXED";
+}
+
 esp_err_t config_service_set_wifi(const char *ssid, const char *password)
 {
     if (!s_config.inited) {
@@ -249,9 +357,11 @@ esp_err_t config_service_set_wifi(const char *ssid, const char *password)
 
     if (ssid != NULL) {
         config_service_copy_string(s_config.runtime.wifi_ssid, sizeof(s_config.runtime.wifi_ssid), ssid);
+        s_config.wifi_source = CONFIG_VALUE_SOURCE_RUNTIME;
     }
     if (password != NULL) {
         config_service_copy_string(s_config.runtime.wifi_password, sizeof(s_config.runtime.wifi_password), password);
+        s_config.wifi_source = CONFIG_VALUE_SOURCE_RUNTIME;
     }
 
     return ESP_OK;
@@ -268,12 +378,14 @@ esp_err_t config_service_set_urls(const char *http_url, const char *ota_url)
             return ESP_ERR_INVALID_ARG;
         }
         config_service_copy_string(s_config.runtime.http_test_url, sizeof(s_config.runtime.http_test_url), http_url);
+        s_config.http_source = CONFIG_VALUE_SOURCE_RUNTIME;
     }
     if (ota_url != NULL) {
         if (!config_service_url_is_basic_valid(ota_url)) {
             return ESP_ERR_INVALID_ARG;
         }
         config_service_copy_string(s_config.runtime.ota_version_url, sizeof(s_config.runtime.ota_version_url), ota_url);
+        s_config.ota_source = CONFIG_VALUE_SOURCE_RUNTIME;
     }
 
     return ESP_OK;

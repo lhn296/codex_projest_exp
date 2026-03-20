@@ -15,6 +15,7 @@ esp_err_t display_service_init(void);
 esp_err_t display_service_clear(void);
 esp_err_t display_service_show_version(const char *version);
 esp_err_t display_service_show_stage(const char *stage);
+esp_err_t display_service_show_config_source(const char *source);
 esp_err_t display_service_show_last_button(button_id_t button_id, button_event_t button_event);
 esp_err_t display_service_show_led_status(led_id_t led_id, led_mode_t mode);
 esp_err_t display_service_show_beep_status(bool enabled, bool test_mode);

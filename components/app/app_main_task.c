@@ -66,6 +66,7 @@ static void app_main_task_log_gpio_mapping(void)
     ESP_LOGI(TAG, "Cloud config:");
     ESP_LOGI(TAG, "  HTTP test url=%s", cfg != NULL ? cfg->http_test_url : "<null>");
     ESP_LOGI(TAG, "  OTA version url=%s", cfg != NULL ? cfg->ota_version_url : "<null>");
+    ESP_LOGI(TAG, "  Config source=%s", config_service_get_source_summary());
 }
 
 /**
@@ -84,6 +85,7 @@ static void app_main_task_apply_default_outputs(void)
     // 再把版本、阶段和当前输出状态同步到 LCD 首页。
     (void)display_service_show_version(APP_PROJECT_VERSION);
     (void)display_service_show_stage(APP_PROJECT_STAGE_NAME);
+    (void)display_service_show_config_source(config_service_get_source_summary());
     (void)display_service_show_led_status(LED_ID_SYS, APP_LED_SYS_DEFAULT_MODE);
     (void)display_service_show_led_status(LED_ID_NET, APP_LED_NET_DEFAULT_MODE);
     (void)display_service_show_led_status(LED_ID_ERR, APP_LED_ERR_DEFAULT_MODE);

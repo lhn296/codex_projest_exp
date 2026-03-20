@@ -26,7 +26,7 @@ static const char *TAG = "DISPLAY";
 #define DISPLAY_HEADER_Y            8
 #define DISPLAY_PROJECT_INFO_X      8
 #define DISPLAY_PROJECT_INFO_Y      32
-#define DISPLAY_PROJECT_INFO_STEP   18
+#define DISPLAY_PROJECT_INFO_STEP   14
 #define DISPLAY_LED_PANEL_X         8
 #define DISPLAY_LED_PANEL_Y         76
 #define DISPLAY_LED_PANEL_STEP      10
@@ -76,6 +76,7 @@ typedef struct {
     bool event_panel_dirty;        // 最近事件区是否需要重绘。
     char version[24];              // 当前显示的版本字符串。
     char stage[48];                // 当前显示的阶段说明字符串。
+    char config_source[16];        // 当前配置来源摘要，例如 DEFAULT/NVS/MIXED。
     button_id_t last_button_id;    // 最近一次按键事件对应的按键编号。
     button_event_t last_button_event; // 最近一次按键事件类型。
     led_mode_t led_modes[LED_ID_MAX]; // 三路 LED 当前模式缓存。
@@ -105,6 +106,7 @@ static display_service_ctx_t s_display = {
     .event_panel_dirty = false,
     .version = {0},
     .stage = {0},
+    .config_source = "DEFAULT",
     .last_button_id = BTN_SYS,
     .last_button_event = BUTTON_EVENT_NONE,
     .led_modes = {LED_MODE_OFF, LED_MODE_OFF, LED_MODE_OFF},
@@ -334,13 +336,24 @@ static esp_err_t display_service_draw_project_info(void)
         return ret;
     }
 
-    return display_service_draw_line(
+    ret = display_service_draw_line(
         DISPLAY_PROJECT_INFO_X,
         DISPLAY_PROJECT_INFO_Y + DISPLAY_PROJECT_INFO_STEP,
         DISPLAY_COLOR_WHITE,
         DISPLAY_TEXT_SCALE_SMALL,
         "STAGE",
         s_display.stage);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return display_service_draw_line(
+        DISPLAY_PROJECT_INFO_X,
+        DISPLAY_PROJECT_INFO_Y + DISPLAY_PROJECT_INFO_STEP * 2,
+        DISPLAY_COLOR_WHITE,
+        DISPLAY_TEXT_SCALE_SMALL,
+        "CFG",
+        s_display.config_source);
 }
 
 /**
@@ -654,6 +667,7 @@ esp_err_t display_service_init(void)
     // 初始化时先把项目基本信息和默认状态写进缓存，后面首页刷新直接按缓存内容绘制。
     snprintf(s_display.version, sizeof(s_display.version), "%s", APP_PROJECT_VERSION);
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", APP_PROJECT_STAGE_NAME);
+    snprintf(s_display.config_source, sizeof(s_display.config_source), "%s", "DEFAULT");
     s_display.beep_enabled = true;
     s_display.beep_test_mode = false;
     s_display.wifi_state = WIFI_STATE_IDLE;
@@ -711,6 +725,20 @@ esp_err_t display_service_show_stage(const char *stage)
     }
 
     snprintf(s_display.stage, sizeof(s_display.stage), "%s", stage);
+    s_display.project_info_dirty = true;
+    return ESP_OK;
+}
+
+/**
+ * @brief 更新配置来源摘要显示缓存
+ */
+esp_err_t display_service_show_config_source(const char *source)
+{
+    if (!s_display.inited || source == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    snprintf(s_display.config_source, sizeof(s_display.config_source), "%s", source);
     s_display.project_info_dirty = true;
     return ESP_OK;
 }

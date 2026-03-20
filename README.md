@@ -1,14 +1,14 @@
 # ESP32 Config Template
 
-基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA + NVS 配置化` 的板载交互、显示、联网、云端版本检查、真实 OTA 升级与运行时配置管理模板练习。
+基于 `ESP-IDF 5.5.3` 的 ESP32-S3 学习工程，用来完成 `I2C + XL9555 + SPI LCD + Wi-Fi + HTTP + JSON + OTA + NVS 配置化 + 配置状态可视化 + 串口配置增强` 的板载交互、显示、联网、云端版本检查、真实 OTA 升级与运行时配置管理模板练习。
 
 ## 项目概览
 
 - 工程名：`codex_project_tep`
 - 显示名称：`ESP32 Config Template`
-- 当前版本：`v2.0.0`
+- 当前版本：`v2.1.0`
 - 目标芯片：`ESP32-S3`
-- 当前阶段：`v2.0.0 Device Config Foundation`
+- 当前阶段：`v2.1.0 Config Visualization & CLI Enhancement`
 
 当前行为：
 
@@ -21,6 +21,8 @@
 - 已切到 `Two OTA Large` 分区方案
 - 新增 `config_service`，用于统一维护运行时配置
 - 新增 `config_cli_service`，允许在 `idf.py monitor` 中通过 `cfg ...` 命令修改配置
+- LCD 项目区已增加 `CFG` 行，用于显示当前配置来源摘要
+- 串口配置入口已增加 `cfg status / cfg source / cfg test http / cfg test ota`
 - 关键联网参数已经改成从运行时配置读取，而不是直接写死在业务服务里
 - 已增加坏 URL 基础校验与 NVS 异常值回退，避免错误地址刷屏
 
@@ -144,12 +146,28 @@ cfg reboot
 - `cfg reboot`
   - 重启后重新从 NVS 加载
 
+本版新增：
+
+```text
+cfg status
+cfg source
+cfg test http
+cfg test ota
+```
+
 ## 当前说明
 
 - 当前默认保持 `APP_OTA_AUTO_UPGRADE = 0`
 - 当前设备配置化已经完成第一轮基础验证
+- 当前配置来源可视化与串口增强已完成第一轮验证
 - 当前 OTA 版本比较已改成按 `vX.Y.Z` 数字比较
-- 当前串口配置入口已经可用，并已验证 `show / set / save / reboot`
+- 当前串口配置入口已经可用，并已验证：
+  - `show`
+  - `source`
+  - `status`
+  - `test http`
+  - `test ota`
+  - `set / save / reboot`
 
 ## 开发与验证
 
@@ -170,15 +188,23 @@ idf.py -p COM3 monitor
 - `config self-test restore done`
 - `config cli ready, type 'cfg help' in monitor`
 - `wifi/http/ota` 从运行时配置读取参数
+- `cfg source` 能打印 `DEFAULT / NVS / MIXED / RUNTIME`
+- `cfg status` 能打印配置与 HTTP / OTA 状态摘要
+- `cfg test http` 能主动发起一次 HTTP 测试
+- `cfg test ota` 能主动发起一次 OTA 检查
 
 建议验证：
 
 1. 输入 `cfg show`，确认当前配置正确显示
-2. 输入 `cfg set http https://httpbin.org/json`
-3. 输入 `cfg save`
-4. 输入 `cfg reboot`
-5. 重启后再次 `cfg show`，确认配置仍然保留
-6. 如果输入明显不合理的 URL，确认系统会拒绝或自动回退默认值，不再刷屏
+2. 输入 `cfg source`，确认来源摘要正确
+3. 输入 `cfg status`，确认状态打印完整
+4. 输入 `cfg test http`，确认请求成功
+5. 输入 `cfg test ota`，确认 OTA 比较逻辑正确
+6. 输入 `cfg set http https://httpbin.org/json`
+7. 输入 `cfg save`
+8. 输入 `cfg reboot`
+9. 重启后再次 `cfg show`，确认配置仍然保留
+10. 如果输入明显不合理的 URL，确认系统会拒绝或自动回退默认值，不再刷屏
 
 ## 发布与维护
 

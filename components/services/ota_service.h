@@ -28,6 +28,9 @@ const char *ota_service_get_message(void);
 // 判断当前是否检测到可升级版本。
 bool ota_service_has_update(void);
 
+// 立即执行一次 OTA 版本检查，常用于 CLI 手动触发测试。
+esp_err_t ota_service_check_now(void);
+
 #ifdef __cplusplus
 }
 #endif
